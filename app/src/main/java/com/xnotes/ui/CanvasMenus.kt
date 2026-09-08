@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -239,7 +238,7 @@ fun ScreenshotMenu(editor: Editor) {
     ) {
         Icon(
             XnotesIcons.copy,
-            contentDescription = "Copy as image",
+            contentDescription = localizedText("Copy as image"),
             tint = palette.text.toComposeColor(),
             modifier = Modifier.size(20.dp),
         )
@@ -257,7 +256,7 @@ private fun ActionIcon(icon: ImageVector, desc: String, enabled: Boolean = true,
     val palette = LocalPalette.current
     val tint = palette.text.toComposeColor().let { if (enabled) it else it.copy(alpha = 0.35f) }
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(46.dp)) {
-        Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = localizedText(desc), tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 

@@ -38,7 +38,6 @@ import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -173,7 +172,7 @@ private fun CodeBlockButton(editor: Editor, lang: String?) {
             } else {
                 Icon(
                     Icons.Filled.Code,
-                    contentDescription = "Code block",
+                    contentDescription = localizedText("Code block"),
                     tint = palette.textDim.toComposeColor(),
                     modifier = Modifier.size(22.dp),
                 )
@@ -219,7 +218,7 @@ private fun BarIcon(
         else -> palette.textDim.toComposeColor()
     }
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp)) {
-        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = localizedText(contentDescription), tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -355,7 +354,7 @@ private fun SizeStepper(size: Double, onDelta: (Double) -> Unit) {
     val palette = LocalPalette.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(36.dp).clip(CircleShape).clickable { onDelta(-1.0) }, contentAlignment = Alignment.Center) {
-            Icon(XnotesIcons.minus, "Smaller", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
+            Icon(XnotesIcons.minus, localizedText("Smaller"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
         }
         Text(
             size.roundToInt().toString(),
@@ -366,7 +365,7 @@ private fun SizeStepper(size: Double, onDelta: (Double) -> Unit) {
             style = TextStyle(fontFamily = FontFamily.Monospace),
         )
         Box(Modifier.size(36.dp).clip(CircleShape).clickable { onDelta(1.0) }, contentAlignment = Alignment.Center) {
-            Icon(XnotesIcons.plus, "Larger", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
+            Icon(XnotesIcons.plus, localizedText("Larger"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
         }
     }
 }

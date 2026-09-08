@@ -45,7 +45,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
+import com.xnotes.ui.Text
+import com.xnotes.ui.localizedText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -555,7 +556,7 @@ private fun EditorScreen(
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(send, "Share $stem"))
+        context.startActivity(Intent.createChooser(send, localizedText(context, "Share $stem")))
     }
 
     fun shareFile(uriStr: String, asPdf: Boolean) {
@@ -606,7 +607,7 @@ private fun EditorScreen(
                 }
             }.getOrNull()
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                if (intent != null) context.startActivity(Intent.createChooser(intent, "Share $stem")) else editor.message = "Could not share the pages."
+                if (intent != null) context.startActivity(Intent.createChooser(intent, localizedText(context, "Share $stem"))) else editor.message = "Could not share the pages."
             }
         }
     }
@@ -750,21 +751,21 @@ private fun EditorScreen(
         val shareUri = pendingShareUri
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showShareChooser = false; pendingShareUri = null },
-            title = { androidx.compose.material3.Text("Share note") },
-            text = { androidx.compose.material3.Text("Share “${shareUri?.let { stemOf(it) } ?: ""}” as:") },
+            title = { Text("Share note") },
+            text = { Text("Share “${shareUri?.let { stemOf(it) } ?: ""}” as:") },
             confirmButton = {
                 androidx.compose.foundation.layout.Row {
                     androidx.compose.material3.TextButton(onClick = { showShareChooser = false; pendingShareUri = null; shareUri?.let { shareFile(it, asPdf = false) } }) {
-                        androidx.compose.material3.Text(".xnote file")
+                        Text(".xnote file")
                     }
                     androidx.compose.material3.TextButton(onClick = { showShareChooser = false; pendingShareUri = null; shareUri?.let { shareFile(it, asPdf = true) } }) {
-                        androidx.compose.material3.Text("PDF")
+                        Text("PDF")
                     }
                 }
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = { showShareChooser = false; pendingShareUri = null }) {
-                    androidx.compose.material3.Text("Cancel")
+                    Text("Cancel")
                 }
             },
         )
@@ -774,8 +775,8 @@ private fun EditorScreen(
         val action = request.action
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { guardAction = null },
-            title = { androidx.compose.material3.Text("Unsaved changes") },
-            text = { androidx.compose.material3.Text("Save changes to “${guarded.title}” before continuing?") },
+            title = { Text("Unsaved changes") },
+            text = { Text("Save changes to “${guarded.title}” before continuing?") },
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     guardAction = null
@@ -787,15 +788,15 @@ private fun EditorScreen(
                         pendingAfterSave = action
                         launchSaveAs(guarded)
                     }
-                }) { androidx.compose.material3.Text("Save") }
+                }) { Text("Save") }
             },
             dismissButton = {
                 androidx.compose.foundation.layout.Row {
                     androidx.compose.material3.TextButton(onClick = { guardAction = null; action() }) {
-                        androidx.compose.material3.Text("Discard")
+                        Text("Discard")
                     }
                     androidx.compose.material3.TextButton(onClick = { guardAction = null }) {
-                        androidx.compose.material3.Text("Cancel")
+                        Text("Cancel")
                     }
                 }
             },
@@ -1403,7 +1404,7 @@ private fun BoxScope.ZoomLockHint(editor: Editor) {
         ) {
             Icon(
                 if (locked) XnotesIcons.lock else XnotesIcons.unlock,
-                contentDescription = if (locked) "Unlock zoom" else "Lock zoom at fit width",
+                contentDescription = localizedText(if (locked) "Unlock zoom" else "Lock zoom at fit width"),
                 tint = (if (locked) palette.accent else palette.textDim).toComposeColor(),
                 modifier = Modifier.size(18.dp),
             )

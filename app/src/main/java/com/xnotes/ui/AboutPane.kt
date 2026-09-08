@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -118,7 +117,7 @@ fun AboutPane() {
                 ) {
                     Text("Version $version", color = palette.textDim.toComposeColor(), fontSize = 12.sp)
                     Spacer(Modifier.width(6.dp))
-                    Icon(XnotesIcons.copy, "Copy version", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(12.dp))
+                    Icon(XnotesIcons.copy, localizedText("Copy version"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(12.dp))
                 }
             }
 
@@ -212,7 +211,7 @@ private fun copyVersion(ctx: Context, version: String) {
     runCatching {
         val clip = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clip.setPrimaryClip(ClipData.newPlainText("xnotes version", "xnotes $version"))
-        Toast.makeText(ctx, "Version copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(ctx, localizedText(ctx, "Version copied"), Toast.LENGTH_SHORT).show()
     }
 }
 

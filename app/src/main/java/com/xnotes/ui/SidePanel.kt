@@ -31,7 +31,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -111,7 +110,7 @@ private fun SegIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, desc:
     IconButton(onClick = onClick) {
         Icon(
             icon,
-            contentDescription = desc,
+            contentDescription = localizedText(desc),
             tint = if (selected) palette.accent.toComposeColor() else palette.textDim.toComposeColor(),
             modifier = Modifier.size(20.dp),
         )
@@ -207,7 +206,7 @@ private fun PageThumb(
                     onLongClick = { editor.togglePageSelection(index) },
                 ),
         ) {
-            bitmap?.let { Image(it, contentDescription = "Page ${index + 1}", modifier = Modifier.fillMaxSize()) }
+            bitmap?.let { Image(it, contentDescription = localizedText("Page ${index + 1}"), modifier = Modifier.fillMaxSize()) }
 
             if (selected) {
                 Box(Modifier.matchParentSize().background(palette.accent.toComposeColor().copy(alpha = 0.18f)))
@@ -216,7 +215,7 @@ private fun PageThumb(
                         .clip(CircleShape).background(palette.accent.toComposeColor()),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(XnotesIcons.check, "Selected", tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(13.dp))
+                    Icon(XnotesIcons.check, localizedText("Selected"), tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(13.dp))
                 }
             } else if (!selecting) {
                 // Three-dot menu, on a faint scrim so it reads over any thumbnail.
@@ -227,7 +226,7 @@ private fun PageThumb(
                             .clickable { menuOpen = true },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(XnotesIcons.more, "Page options", tint = palette.text.toComposeColor(), modifier = Modifier.size(16.dp))
+                        Icon(XnotesIcons.more, localizedText("Page options"), tint = palette.text.toComposeColor(), modifier = Modifier.size(16.dp))
                     }
                     PageContextMenu(editor, index, menuOpen, { menuOpen = false }, onSharePages, onSavePagesAsPdf, onSavePagesAsImages)
                 }
@@ -304,7 +303,7 @@ private fun PageSelectionBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = { editor.clearPageSelection() }) {
-            Icon(XnotesIcons.close, "Clear selection", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
+            Icon(XnotesIcons.close, localizedText("Clear selection"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
         }
         Text("${editor.pageSelectionCount}", color = palette.text.toComposeColor(), fontSize = 13.sp, fontFamily = FontFamily.Monospace)
         Spacer(Modifier.weight(1f))
@@ -319,7 +318,7 @@ private fun PageSelectionBar(
 @Composable
 private fun BarAction(icon: ImageVector, desc: String, onClick: () -> Unit) {
     IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
-        Icon(icon, desc, tint = LocalPalette.current.textDim.toComposeColor(), modifier = Modifier.size(19.dp))
+        Icon(icon, localizedText(desc), tint = LocalPalette.current.textDim.toComposeColor(), modifier = Modifier.size(19.dp))
     }
 }
 
@@ -481,7 +480,7 @@ private fun BookmarksTab(editor: Editor) {
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
             IconButton(onClick = { showAdd = true }) {
-                Icon(XnotesIcons.plus, "Add bookmark", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
+                Icon(XnotesIcons.plus, localizedText("Add bookmark"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
             }
         }
         if (bookmarks.isEmpty()) {
@@ -500,7 +499,7 @@ private fun BookmarksTab(editor: Editor) {
                             modifier = Modifier.weight(1f),
                         )
                         IconButton(onClick = { editor.removeBookmark(i) }) {
-                            Icon(XnotesIcons.trash, "Remove", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
+                            Icon(XnotesIcons.trash, localizedText("Remove"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
                         }
                     }
                 }

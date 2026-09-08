@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
@@ -410,7 +409,7 @@ private fun AddSectionChip(onClick: () -> Unit) {
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(XnotesIcons.plus, "Add section", tint = palette.accent.toComposeColor(), modifier = Modifier.size(14.dp))
+        Icon(XnotesIcons.plus, localizedText("Add section"), tint = palette.accent.toComposeColor(), modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(4.dp))
         Text("Add section", color = palette.accent.toComposeColor(), fontSize = 12.sp)
     }

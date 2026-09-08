@@ -23,7 +23,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -809,7 +808,7 @@ private fun KindChip(icon: ImageVector, label: String, selected: Boolean, onClic
     ) {
         Icon(
             icon,
-            contentDescription = label,
+            contentDescription = localizedText(label),
             tint = if (selected) palette.accent.toComposeColor() else palette.text.toComposeColor(),
             modifier = Modifier.size(20.dp),
         )

@@ -65,7 +65,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -332,7 +331,7 @@ private fun BackstageSidebar(
             Text("xnotes", color = palette.text.toComposeColor(), fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onCollapse) {
-                Icon(XnotesIcons.prev, "Collapse sidebar", tint = palette.text.toComposeColor(), modifier = Modifier.size(22.dp))
+                Icon(XnotesIcons.prev, localizedText("Collapse sidebar"), tint = palette.text.toComposeColor(), modifier = Modifier.size(22.dp))
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -380,11 +379,11 @@ private fun BackstageMain(
             ) {
                 if (compact) {
                     IconButton(onClick = onBackToHome) {
-                        Icon(XnotesIcons.prev, "Back to home", tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
+                        Icon(XnotesIcons.prev, localizedText("Back to home"), tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
                     }
                 } else if (!sidebarOpen) {
                     IconButton(onClick = onShowSidebar) {
-                        Icon(XnotesIcons.menu, "Show sidebar", tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
+                        Icon(XnotesIcons.menu, localizedText("Show sidebar"), tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
                     }
                 }
             }
@@ -417,7 +416,7 @@ private fun Command(icon: ImageVector, label: String, selected: Boolean = false,
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = label, tint = palette.accent.toComposeColor(), modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = localizedText(label), tint = palette.accent.toComposeColor(), modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(16.dp))
         Text(
             label,
@@ -500,7 +499,7 @@ private fun HomePane(
             val hasRoot = editor.browseRoot != null
             if (!sidebarOpen) {
                 IconButton(onClick = onShowSidebar) {
-                    Icon(XnotesIcons.menu, "Show sidebar", tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
+                    Icon(XnotesIcons.menu, localizedText("Show sidebar"), tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(4.dp))
                 if (!hasRoot) Text("xnotes", color = palette.text.toComposeColor(), fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -530,7 +529,7 @@ private fun HomePane(
                     contentColor = palette.bg.toComposeColor(),
                     modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
                 ) {
-                    Icon(XnotesIcons.edit, "New note", modifier = Modifier.size(24.dp))
+                    Icon(XnotesIcons.edit, localizedText("New note"), modifier = Modifier.size(24.dp))
                 }
             }
         }
@@ -708,7 +707,7 @@ private fun ExplorerSection(
                             // active, else switches to it (dates/size newest-or-largest first, name A→Z).
                             DropdownMenuItem(
                                 text = { Text("Sort by", color = palette.textDim.toComposeColor()) },
-                                leadingIcon = { Icon(XnotesIcons.prev, "Back", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp)) },
+                                leadingIcon = { Icon(XnotesIcons.prev, localizedText("Back"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp)) },
                                 onClick = { sortSubmenu = false },
                             )
                             HorizontalDivider(color = palette.border.toComposeColor())
@@ -1135,7 +1134,7 @@ private fun ExplorerSearchField(query: String, onQueryChange: (String) -> Unit, 
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(XnotesIcons.search, "Search notes", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
+        Icon(XnotesIcons.search, localizedText("Search notes"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
         if (expanded) {
             Spacer(Modifier.width(8.dp))
             BasicTextField(
@@ -1186,7 +1185,7 @@ private fun Crumb(text: String, current: Boolean, onClick: () -> Unit) {
 private fun IconAction(icon: ImageVector, desc: String, onClick: () -> Unit) {
     val palette = LocalPalette.current
     IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
-        Icon(icon, desc, tint = palette.accent.toComposeColor(), modifier = Modifier.size(20.dp))
+        Icon(icon, localizedText(desc), tint = palette.accent.toComposeColor(), modifier = Modifier.size(20.dp))
     }
 }
 
@@ -1385,7 +1384,7 @@ private fun FolderChip(
                 onClick = { if (inSelectMode) onDismissSelection() else menuOpen = true },
                 modifier = Modifier.size(32.dp),
             ) {
-                Icon(XnotesIcons.more, "More", tint = if (active) onAccent else palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
+                Icon(XnotesIcons.more, localizedText("More"), tint = if (active) onAccent else palette.textDim.toComposeColor(), modifier = Modifier.size(16.dp))
             }
             if (!inSelectMode) EntryMenu(menuOpen, { menuOpen = false }, onRename, onCopy, onCut, onDelete, onColor = onColor)
         }
@@ -1460,7 +1459,7 @@ private fun FileTile(
             if (!inSelectMode && onRename != null) {
                 Box(Modifier.align(Alignment.TopEnd)) {
                     IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
-                        Icon(XnotesIcons.more, "More", tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
+                        Icon(XnotesIcons.more, localizedText("More"), tint = palette.textDim.toComposeColor(), modifier = Modifier.size(18.dp))
                     }
                     EntryMenu(menuOpen, { menuOpen = false }, onRename, onCopy, onCut, onDelete, onShare, onSaveCopy, onExportPdf, onColor = onColor)
                 }

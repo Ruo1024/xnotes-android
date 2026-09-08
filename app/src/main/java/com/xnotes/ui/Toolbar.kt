@@ -29,7 +29,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -360,7 +359,7 @@ internal fun ToolbarIcon(
                 .background(if (filled) palette.accent.toComposeColor() else androidx.compose.ui.graphics.Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = localizedText(contentDescription), tint = tint, modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -505,7 +504,7 @@ private fun StickerTile(file: java.io.File, onInsert: () -> Unit, onRemove: () -
         thumb?.let {
             Image(
                 bitmap = it,
-                contentDescription = "Sticker",
+                contentDescription = localizedText("Sticker"),
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().padding(3.dp),
             )
@@ -525,4 +524,3 @@ private fun FitMenu(editor: Editor) {
         }
     }
 }
-

@@ -32,7 +32,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -187,12 +186,12 @@ fun PreferencesPane(
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
             if (compact) {
                 IconButton(onClick = onBackToHome) {
-                    Icon(XnotesIcons.prev, "Back to home", tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
+                    Icon(XnotesIcons.prev, localizedText("Back to home"), tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(4.dp))
             } else if (!sidebarOpen) {
                 IconButton(onClick = onShowSidebar) {
-                    Icon(XnotesIcons.menu, "Show sidebar", tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
+                    Icon(XnotesIcons.menu, localizedText("Show sidebar"), tint = palette.text.toComposeColor(), modifier = Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(4.dp))
             }

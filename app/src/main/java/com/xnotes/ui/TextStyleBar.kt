@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -102,7 +101,7 @@ fun TextStyleBar(editor: Editor) {
             ) {
                 Icon(
                     XnotesIcons.check,
-                    contentDescription = "Done",
+                    contentDescription = localizedText("Done"),
                     tint = palette.text.toComposeColor(),
                     modifier = Modifier.size(22.dp),
                 )
