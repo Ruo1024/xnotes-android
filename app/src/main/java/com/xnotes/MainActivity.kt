@@ -111,6 +111,7 @@ private fun standardPenAction(action: Int): Int = when (action) {
     211 -> MotionEvent.ACTION_DOWN
     212 -> MotionEvent.ACTION_UP
     213 -> MotionEvent.ACTION_MOVE
+    214 -> MotionEvent.ACTION_CANCEL
     else -> -1
 }
 

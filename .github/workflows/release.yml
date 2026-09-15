@@ -7,6 +7,10 @@ on:
         description: Release tag (v0.8.17-zh.1)
         required: true
         default: v0.8.17-zh.1
+      replace_existing:
+        description: Replace the existing release assets and move its tag after verification
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,6 +26,7 @@ jobs:
     timeout-minutes: 45
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
+      REPLACE_EXISTING: ${{ inputs.replace_existing }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -35,9 +40,23 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-zh\.[0-9]+$ ]]
           if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG"; then
-            echo 'This tag already exists; choose a new release tag.' >&2
+            test "$REPLACE_EXISTING" = true
+            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft == false' | grep -qx true
+            previous=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
+            printf 'PREVIOUS_TAG_SHA=%s\n' "$previous" >> "$GITHUB_ENV"
+            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-backup
+          elif [ "$REPLACE_EXISTING" = true ]; then
+            echo 'Requested replacement but the tag does not exist.' >&2
             exit 1
           fi
+      - name: Preserve previous release assets
+        if: inputs.replace_existing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: previous-release-assets
+          path: release-backup
+          retention-days: 90
+          if-no-files-found: error
       - name: Install Android toolchain
         shell: bash
         run: |
@@ -80,7 +99,19 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk" | tee release-output/signing.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" > release-output/package.txt
           grep -q "package: name='com.xnotes.debug'" release-output/package.txt
-          grep -q "versionCode='54'" release-output/package.txt
+          grep -q "versionCode='55'" release-output/package.txt
+          grep -q 'certificate SHA-256 digest: f6801d8c953410e2650f34818ed61f95b947e090b010ad29d72ac95cd16425b5' release-output/signing.txt
+          if [ "$REPLACE_EXISTING" = true ]; then
+            old_apk="release-backup/xnotes-${RELEASE_TAG#v}.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$old_apk" > "$RUNNER_TEMP/old-signing.txt"
+            grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/old-signing.txt" > "$RUNNER_TEMP/old-cert.txt"
+            grep 'certificate SHA-256 digest:' release-output/signing.txt > "$RUNNER_TEMP/new-cert.txt"
+            diff "$RUNNER_TEMP/old-cert.txt" "$RUNNER_TEMP/new-cert.txt"
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$old_apk" > "$RUNNER_TEMP/old-package.txt"
+            grep -q "package: name='com.xnotes.debug'" "$RUNNER_TEMP/old-package.txt"
+            old_code=$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" "$RUNNER_TEMP/old-package.txt")
+            test 55 -gt "$old_code"
+          fi
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
           (cd release-output && sha256sum *.apk > SHA256SUMS)
       - name: Upload test reports
@@ -94,10 +125,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG" release-output/* \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "xnotes 简体中文版 ${RELEASE_TAG#v}" \
-            --notes-file .github/release-notes.md --latest
+          if [ "$REPLACE_EXISTING" = true ]; then
+            current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
+            test "$current" = "$PREVIOUS_TAG_SHA"
+            gh release upload "$RELEASE_TAG" release-output/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
+              -f sha="$GITHUB_SHA" -F force=true
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "xnotes 简体中文版 ${RELEASE_TAG#v}（修复版，构建 55）" \
+              --notes-file .github/release-notes.md --latest
+          else
+            gh release create "$RELEASE_TAG" release-output/* \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "xnotes 简体中文版 ${RELEASE_TAG#v}" \
+              --notes-file .github/release-notes.md --latest
+          fi
       - name: Remove signing material from runner
         if: always()
         shell: bash

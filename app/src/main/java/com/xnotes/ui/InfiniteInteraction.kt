@@ -124,6 +124,10 @@ class InfiniteInteraction(
     /** Tool the stylus side button arms while it is held; null leaves the button alone. */
     var penButtonTool: Tool? = Tool.ERASER
     var penSecondaryButtonTool: Tool? = Tool.ERASER
+    var spenThirdPartyButtons = false
+    var penButtonHover = false
+    private var hoverActionTool: Tool? = null
+    private var contactButtonTool: Tool? = null
 
     /** Zoom lock: a pinch pans without changing the zoom, mirroring the paged canvas. */
     var zoomLocked: Boolean = false
@@ -221,15 +225,56 @@ class InfiniteInteraction(
      */
     fun onGenericMotion(e: MotionEvent) {
         stylusButtons.onGenericMotion(e)
+        if (hoverActionTool != null && StylusButtonLatch.isPen(e.getToolType(0)) &&
+            stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true) != hoverActionTool) endHoverAction()
     }
 
     /** Latch a side button delivered as a key event, which is all Bluetooth and USI pens send. */
-    fun onStylusButtonKey(keyCode: Int, down: Boolean): Boolean = stylusButtons.onKey(keyCode, down)
+    fun onStylusButtonKey(keyCode: Int, down: Boolean): Boolean {
+        if (!stylusButtons.onKey(keyCode, down)) return false
+        if (hoverActionTool != null &&
+            stylusButtons.toolForButtons(0, penButtonTool, if (spenThirdPartyButtons) penSecondaryButtonTool else penButtonTool) != hoverActionTool) endHoverAction()
+        return true
+    }
 
-    fun releaseStylusButtons() = stylusButtons.reset()
+    fun releaseStylusButtons() {
+        stylusButtons.reset()
+        contactButtonTool = null
+        endHoverAction()
+    }
+
+    fun onHover(e: MotionEvent): Boolean {
+        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true)
+        val wanted = if (penButtonHover && e.actionMasked != MotionEvent.ACTION_HOVER_EXIT &&
+            (buttonTool == Tool.ERASER || buttonTool == Tool.PAN)) buttonTool else null
+        if (hoverActionTool != wanted) endHoverAction()
+        if (wanted == null) return false
+        val x = e.x.toDouble()
+        val y = e.y.toDouble()
+        if (hoverActionTool == null) {
+            if (mode != CanvasPointerMode.IDLE) return false
+            hoverActionTool = wanted
+            if (wanted == Tool.ERASER) { clearSelection(); beginErase(x, y) }
+            else beginPan(x, y, fromPenButton = true)
+        } else {
+            if (wanted == Tool.ERASER) eraseAt(x, y) else extendPan(x, y)
+        }
+        return true
+    }
+
+    private fun endHoverAction() {
+        if (hoverActionTool == null) return
+        if (hoverActionTool == Tool.ERASER) endErase()
+        hoverActionTool = null
+        mode = CanvasPointerMode.IDLE
+        stopFling()
+        setInteractive(false, true)
+        requestRender()
+    }
 
     /** Drop any in-flight gesture and stop a glide, so a document swap cannot bleed into the next. */
     fun resetGestureState() {
+        releaseStylusButtons()
         stopFling()
         cancelLongPress()
         longPressPrevTool = null
@@ -245,6 +290,7 @@ class InfiniteInteraction(
     // --- pointer handling ---
 
     private fun handleDown(e: MotionEvent) {
+        endHoverAction()
         stopFling() // a new touch halts any in-progress glide
         // The minimap sits over the canvas, so a press on it navigates rather than draws.
         if (onMinimapPress(e.getX(0).toDouble(), e.getY(0).toDouble())) {
@@ -252,7 +298,7 @@ class InfiniteInteraction(
             return
         }
         drawingPointerId = e.getPointerId(0)
-        drawingIsStylus = e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS
+        drawingIsStylus = StylusButtonLatch.isPen(e.getToolType(0))
         val vx = e.getX(0).toDouble()
         val vy = e.getY(0).toDouble()
 
@@ -260,10 +306,10 @@ class InfiniteInteraction(
         // both override the armed tool, and a finger pans unless finger-draw is on. This mirrors
         // the paged canvas so a pen behaves the same on either surface.
         val toolType = e.getToolType(0)
-        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool)
+        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons)
+        contactButtonTool = buttonTool
         val onSelection = hitsSelection(viewport.viewportToContent(Pt(vx, vy)))
         val effective: Tool = when {
-            toolType == MotionEvent.TOOL_TYPE_ERASER -> Tool.ERASER
             buttonTool != null -> buttonTool
             // While something is selected, a press on it grabs it rather than inking through it,
             // and a finger may grab it even with finger-draw off. Both are the paged canvas's
@@ -385,6 +431,7 @@ class InfiniteInteraction(
     }
 
     private fun handleMove(e: MotionEvent) {
+        if (switchContactButtonTool(e)) return
         // A finger that wanders is panning or drawing, not holding still for the menu.
         if (longPressRunnable != null) {
             val moved = Pt(e.getX(0).toDouble(), e.getY(0).toDouble()).distanceTo(longPressAt)
@@ -402,6 +449,26 @@ class InfiniteInteraction(
             CanvasPointerMode.RESIZE -> extendResize(e.getX(0).toDouble(), e.getY(0).toDouble())
             CanvasPointerMode.ROTATE -> extendRotate(e.getX(0).toDouble(), e.getY(0).toDouble())
             CanvasPointerMode.IDLE -> Unit
+        }
+    }
+
+    private fun switchContactButtonTool(e: MotionEvent): Boolean {
+        if (!spenThirdPartyButtons || !drawingIsStylus || e.pointerCount != 1 ||
+            !StylusButtonLatch.isPen(e.getToolType(0)) || mode == CanvasPointerMode.PINCH) return false
+        val next = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, true)
+        if (next == contactButtonTool) return false
+        val boundary = MotionEvent.obtainNoHistory(e)
+        try {
+            // A tool boundary is not a tap and must not dismiss a selection or start a fling.
+            panMayDismiss = false
+            panFromPenButton = true
+            handleUp(boundary)
+            stopFling()
+            boundary.action = MotionEvent.ACTION_DOWN
+            handleDown(boundary)
+            return true
+        } finally {
+            boundary.recycle()
         }
     }
 

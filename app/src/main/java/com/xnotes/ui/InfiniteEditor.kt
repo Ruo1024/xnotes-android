@@ -251,6 +251,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     init {
         view.input = { interaction.onTouch(it) }
         view.genericMotion = { interaction.onGenericMotion(it) }
+        view.hover = { interaction.onHover(it) }
         view.onInputFocusLost = { interaction.releaseStylusButtons() }
         view.afterLayout = { applyInitialView() }
         view.onContextReady = { renderFailure = view.failure }
@@ -1326,10 +1327,17 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     }
 
     /** Adopt the app's pen preferences, so the canvas and the paged note behave the same. */
-    fun applyInputPrefs(fingerDraws: Boolean, penButtonTool: Tool?, zoomLockPan: String = "single", penSecondaryButtonTool: Tool? = penButtonTool) {
+    fun applyInputPrefs(
+        fingerDraws: Boolean, penButtonTool: Tool?, zoomLockPan: String = "single",
+        penSecondaryButtonTool: Tool? = penButtonTool, spenThirdPartyButtons: Boolean = false,
+        penButtonHover: Boolean = false,
+    ) {
+        interaction.releaseStylusButtons()
         interaction.fingerDraws = fingerDraws
         interaction.penButtonTool = penButtonTool
         interaction.penSecondaryButtonTool = penSecondaryButtonTool
+        interaction.spenThirdPartyButtons = spenThirdPartyButtons
+        interaction.penButtonHover = penButtonHover
         interaction.zoomLockPan = zoomLockPan
     }
 

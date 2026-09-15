@@ -457,6 +457,8 @@ private val ZH_HANS = mapOf(
     "Front buffering paints the pen's ink straight into the frame the screen is showing, which is what makes it feel instant. A few panels do not hand that over cleanly, and there the ink can flicker or fall behind the nib. Turn it off on those and every stroke goes through the ordinary canvas." to "前缓冲绘制可降低笔迹延迟。部分屏幕可能出现笔迹闪烁或跟笔延迟，遇到这些问题时可关闭此功能，使用常规画布绘制。",
     "Stylus primary button (hold)" to "笔主按钮（按住）",
     "Stylus secondary button (hold)" to "笔副按钮（按住）",
+    "S Pen third-party dual-button compatibility" to "S Pen 第三方笔双按钮兼容",
+    "Treat eraser-tip input as the secondary button. For compatible third-party pens such as Wacom One. This also remaps a physical tail eraser while enabled." to "适用于 Wacom One 等兼容笔，将橡皮擦输入识别为副按钮。开启后，其他笔的笔尾橡皮擦也会使用副按钮配置。",
     "Screen" to "滤色",
     "Multiply" to "正片叠底",
     "Tint" to "着色",

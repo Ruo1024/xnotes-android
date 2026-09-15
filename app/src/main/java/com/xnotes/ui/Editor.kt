@@ -545,7 +545,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val canvas = infinite
         canvas.replaceDocument(doc)
         canvas.applyPalette(palette)
-        canvas.applyInputPrefs(settings.prefs.fingerDraws, controller.penButtonTool, settings.prefs.zoomLockPan, controller.penSecondaryButtonTool)
+        canvas.applyInputPrefs(settings.prefs.fingerDraws, controller.penButtonTool, settings.prefs.zoomLockPan,
+            controller.penSecondaryButtonTool, settings.prefs.spenThirdPartyButtons, settings.prefs.penButtonHover)
         canvas.applyZoomRange(settings.prefs.canvasMinZoomPercent, settings.prefs.canvasMaxZoomPercent)
         canvas.onContentChanged = { scheduleCanvasAutosave() }
         // Only a canvas living under the granted folder autosaves; anything else is left alone,
@@ -1604,6 +1605,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             if (p.penButtonTool == "none") null else (Tool.fromId(p.penButtonTool) ?: Tool.ERASER),
             p.zoomLockPan,
             if (p.penSecondaryButtonTool == "none") null else (Tool.fromId(p.penSecondaryButtonTool) ?: Tool.ERASER),
+            p.spenThirdPartyButtons,
+            p.penButtonHover,
         )
         infiniteOrNull?.applyZoomRange(p.canvasMinZoomPercent, p.canvasMaxZoomPercent)
         // Both surfaces' pads: the switch is about the device, not about one of them.
@@ -1615,6 +1618,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         controller.detectShapes = p.detectShapes
         controller.penButtonTool = if (p.penButtonTool == "none") null else (Tool.fromId(p.penButtonTool) ?: Tool.ERASER)
         controller.penSecondaryButtonTool = if (p.penSecondaryButtonTool == "none") null else (Tool.fromId(p.penSecondaryButtonTool) ?: Tool.ERASER)
+        controller.releaseStylusButtons()
+        controller.spenThirdPartyButtons = p.spenThirdPartyButtons
         controller.penButtonHover = p.penButtonHover
         state.sideMargin = p.sideMargin
         state.pageBorders = !p.hidePageBorders

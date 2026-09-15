@@ -170,11 +170,11 @@ class InteractionController(
     /** Tool the stylus side button activates while held, or null to ignore the button. */
     var penButtonTool: Tool? = Tool.ERASER
 
-    /** Side button as last seen on the hover/generic-motion stream or a stylus-button KeyEvent
-     *  (Feeder C, for Bluetooth pens that report it only there); read only at touch-down, so a
-     *  press after the pen is already down does not activate the mapped tool. */
+    /** Button state shared across hover, touch and key event streams. */
     private val stylusButtons = StylusButtonLatch()
     var penSecondaryButtonTool: Tool? = Tool.ERASER
+    var spenThirdPartyButtons = false
+    private var contactButtonTool: Tool? = null
 
     /** When true, the side-button tool also runs off the hover stream (no contact needed); eraser/pan only. */
     var penButtonHover: Boolean = false
@@ -448,7 +448,7 @@ class InteractionController(
 
     fun onHover(e: MotionEvent): Boolean {
         if (handleHoverAction(e)) return true
-        val isEraserPointer = e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
+        val isEraserPointer = !spenThirdPartyButtons && e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
         if (tool != Tool.ERASER && !isEraserPointer) return false
         eraserCursor = if (e.actionMasked == MotionEvent.ACTION_HOVER_EXIT) {
             null
@@ -462,7 +462,7 @@ class InteractionController(
     /** Drive the side-button tool (eraser/pan) off the hover stream while the button is held and
      *  "activate during hover" is on, so the pen erases or pans without touching the screen. */
     private fun handleHoverAction(e: MotionEvent): Boolean {
-        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool)
+        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true)
         val buttonNow = e.actionMasked != MotionEvent.ACTION_HOVER_EXIT && buttonTool != null
         val want = penButtonHover && buttonNow &&
             (buttonTool == Tool.ERASER || buttonTool == Tool.PAN)
@@ -510,10 +510,10 @@ class InteractionController(
      *  (ACTION_BUTTON_PRESS/RELEASE), never in the touch buttonState. Latch it here; a release
      *  here also ends an in-progress hover gesture even if the pen has not moved. */
     fun onGenericMotion(e: MotionEvent) {
-        if (e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
+        if (StylusButtonLatch.isPen(e.getToolType(0))) {
             stylusButtons.onGenericMotion(e)
             if (hoverActionTool != null &&
-                stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool) != hoverActionTool) endHoverAction()
+                stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true) != hoverActionTool) endHoverAction()
         }
     }
 
@@ -524,12 +524,13 @@ class InteractionController(
     fun onStylusButtonKey(keyCode: Int, down: Boolean): Boolean {
         if (!stylusButtons.onKey(keyCode, down)) return false
         if (hoverActionTool != null &&
-            stylusButtons.toolForButtons(0, penButtonTool, penSecondaryButtonTool) != hoverActionTool) endHoverAction()
+            stylusButtons.toolForButtons(0, penButtonTool, if (spenThirdPartyButtons) penSecondaryButtonTool else penButtonTool) != hoverActionTool) endHoverAction()
         return true
     }
 
     fun releaseStylusButtons() {
         stylusButtons.reset()
+        contactButtonTool = null
         if (hoverActionTool != null) endHoverAction()
     }
 
@@ -544,15 +545,15 @@ class InteractionController(
         val vy = e.getY(0).toDouble()
         val content = state.viewportToContent(Pt(vx, vy))
         drawingPointerId = e.getPointerId(0)
-        drawingIsStylus = toolType == MotionEvent.TOOL_TYPE_STYLUS
+        drawingIsStylus = StylusButtonLatch.isPen(toolType)
 
         // Resolve which tool this pointer drives:
         //  - the stylus eraser end, or the held side button, force the eraser/side-button tool;
         //  - a finger pans unless finger-draw is enabled;
         //  - otherwise the armed tool.
-        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool)
+        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons)
+        contactButtonTool = buttonTool
         val effectiveTool: Tool = when {
-            toolType == MotionEvent.TOOL_TYPE_ERASER -> Tool.ERASER
             buttonTool != null -> buttonTool
             // While something is selected, the stylus grabs that selection (resize on a handle,
             // move on the body) instead of inking through it, matching the finger. Off the
@@ -676,6 +677,7 @@ class InteractionController(
 
     private fun handleMove(e: MotionEvent) {
         val idx = e.findPointerIndex(drawingPointerId).coerceAtLeast(0)
+        if (switchContactButtonTool(e, idx)) return
         val vx = e.getX(idx).toDouble()
         val vy = e.getY(idx).toDouble()
         val content = state.viewportToContent(Pt(vx, vy))
@@ -701,6 +703,38 @@ class InteractionController(
                 if (flowText?.dragTo(content, Pt(vx, vy)) == true) beginPan(vx, vy)
             PointerMode.TEXT_DRAG -> extendTextDrag(content)
             else -> Unit
+        }
+    }
+
+    /** Commit the outgoing operation at the switch point. Do not feed old batched samples into
+     * the newly selected tool, and do not run tap/link actions or erase-auto-switch on this boundary. */
+    private fun switchContactButtonTool(e: MotionEvent, idx: Int): Boolean {
+        if (!spenThirdPartyButtons || !drawingIsStylus || e.pointerCount != 1 ||
+            !StylusButtonLatch.isPen(e.getToolType(idx))) return false
+        val next = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, true, idx)
+        if (next == contactButtonTool) return false
+        val boundary = MotionEvent.obtainNoHistory(e)
+        try {
+            when (mode) {
+                PointerMode.DRAW -> endDraw(boundary)
+                PointerMode.ERASE -> endErase()
+                PointerMode.PAN -> { stopFling(); clearOverscroll() }
+                PointerMode.BAND -> endBand()
+                PointerMode.LASSO_DRAW -> endLasso()
+                PointerMode.SHAPE -> endShape()
+                PointerMode.MOVE -> endMove(state.viewportToContent(Pt(e.getX(idx).toDouble(), e.getY(idx).toDouble())))
+                PointerMode.RESIZE -> endResize()
+                PointerMode.TRANSFORM -> endTransform()
+                PointerMode.IDLE -> Unit
+                else -> return false // Never interrupt a pinch, ruler or text-edit gesture.
+            }
+            cancelLongPress()
+            mode = PointerMode.IDLE
+            boundary.action = MotionEvent.ACTION_DOWN
+            handleDown(boundary)
+            return true
+        } finally {
+            boundary.recycle()
         }
     }
 
@@ -2840,7 +2874,7 @@ class InteractionController(
     }
 
     private fun resolvePressure(e: MotionEvent, pointerIndex: Int, toolType: Int): Double =
-        if (toolType == MotionEvent.TOOL_TYPE_STYLUS) e.getPressure(pointerIndex).toDouble().coerceIn(0.0, 1.0) else 1.0
+        if (StylusButtonLatch.isPen(toolType)) e.getPressure(pointerIndex).toDouble().coerceIn(0.0, 1.0) else 1.0
 
     // --- overlay ---
 

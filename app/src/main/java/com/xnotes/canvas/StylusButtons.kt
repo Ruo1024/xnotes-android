@@ -30,13 +30,16 @@ class StylusButtonLatch {
     val held: Boolean get() = buttons() != 0
 
     fun onGenericMotion(e: MotionEvent): Boolean {
-        if (e.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) return false
+        if (!isPen(e.getToolType(0))) return false
         updateMotion(e.buttonState, e.actionMasked, e.actionButton)
         return !held
     }
 
     internal fun updateMotion(state: Int, action: Int, actionButton: Int = 0) {
         motionButtons = normalize(state)
+        if (action == MotionEvent.ACTION_BUTTON_PRESS) {
+            motionButtons = motionButtons or normalize(actionButton)
+        }
         if (action == MotionEvent.ACTION_BUTTON_RELEASE) {
             val released = normalize(actionButton)
             keys.removeAll { keyMask(it) and released != 0 }
@@ -60,9 +63,23 @@ class StylusButtonLatch {
         motionButtons = 0
     }
 
-    fun toolFor(e: MotionEvent, primary: Tool?, secondary: Tool?): Tool? =
-        if (e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS)
-            toolForButtons(e.buttonState, primary, secondary) else null
+    fun toolFor(
+        e: MotionEvent, primary: Tool?, secondary: Tool?, compatibility: Boolean = false,
+        pointerIndex: Int = 0, hover: Boolean = false,
+    ): Tool? = resolveTool(e.getToolType(pointerIndex), e.buttonState, primary, secondary, compatibility, hover)
+
+    /** Wacom One's second side button can change toolType to ERASER with no button bits.
+     * Resolve that before the ordinary eraser fallback, including a disabled (null) mapping.
+     * With compatibility off, preserve the original single-button and physical-eraser behavior.
+     * https://www.mindboardapps.com/posts/using-wacom-one-pen-on-android/ */
+    internal fun resolveTool(
+        toolType: Int, state: Int, primary: Tool?, secondary: Tool?, compatibility: Boolean,
+        hover: Boolean = false,
+    ): Tool? = when (toolType) {
+        MotionEvent.TOOL_TYPE_ERASER -> if (compatibility) secondary else if (hover) null else Tool.ERASER
+        MotionEvent.TOOL_TYPE_STYLUS -> toolForButtons(state, primary, if (compatibility) secondary else primary)
+        else -> null
+    }
 
     /** Secondary takes priority when both are held. A disabled button has no effect. */
     internal fun toolForButtons(state: Int, primary: Tool?, secondary: Tool?): Tool? {
@@ -77,6 +94,8 @@ class StylusButtonLatch {
     private fun buttons(): Int = keys.fold(motionButtons) { mask, key -> mask or keyMask(key) }
 
     companion object {
+        fun isPen(toolType: Int): Boolean =
+            toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
         private const val PRIMARY = 1
         private const val SECONDARY = 2
 

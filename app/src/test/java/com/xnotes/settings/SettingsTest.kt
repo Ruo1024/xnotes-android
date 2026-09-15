@@ -13,6 +13,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsTest {
+    @Test fun thirdPartyCompatibilityIsOptInEvenWithExistingSecondaryPreference() {
+        assertFalse(Preferences.fromJson(JSONObject()).spenThirdPartyButtons)
+        assertFalse(Preferences.fromJson(JSONObject()
+            .put("pen_button_secondary_tool", "pan")).spenThirdPartyButtons)
+    }
+
+    @Test fun compatibilityTogglePreservesIndependentButtonChoicesAcrossRestart() {
+        val original = Preferences(penButtonTool = "eraser", penSecondaryButtonTool = "pan", spenThirdPartyButtons = true)
+        val restored = Preferences.fromJson(original.toJson())
+        assertTrue(restored.spenThirdPartyButtons)
+        val disabled = Preferences.fromJson(restored.copy(spenThirdPartyButtons = false).toJson())
+        assertFalse(disabled.spenThirdPartyButtons)
+        assertEquals("eraser", disabled.penButtonTool)
+        assertEquals("pan", disabled.penSecondaryButtonTool)
+        assertEquals("pan", Preferences.fromJson(disabled.copy(spenThirdPartyButtons = true).toJson()).penSecondaryButtonTool)
+    }
 
     @Test fun oldSideButtonPreferenceIsInheritedBySecondary() {
         val old = JSONObject().put("pen_button_tool", "pan")

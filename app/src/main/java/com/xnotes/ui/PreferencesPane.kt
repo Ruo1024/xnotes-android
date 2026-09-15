@@ -256,7 +256,17 @@ fun PreferencesPane(
                 Chip("No pan", prefs.zoomLockPan == "none") { update(prefs.copy(zoomLockPan = "none")) }
             }
             CheckRow("Snap held strokes to shapes (hold the pen still)", prefs.detectShapes) { update(prefs.copy(detectShapes = it)) }
-            FieldLabel("Stylus primary button (hold)")
+            CheckRow("S Pen third-party dual-button compatibility", prefs.spenThirdPartyButtons) {
+                update(prefs.copy(spenThirdPartyButtons = it))
+            }
+            if (prefs.spenThirdPartyButtons) {
+                Text(
+                    "Treat eraser-tip input as the secondary button. For compatible third-party pens such as Wacom One. This also remaps a physical tail eraser while enabled.",
+                    color = palette.textDim.toComposeColor(),
+                    fontSize = 12.sp,
+                )
+            }
+            FieldLabel(if (prefs.spenThirdPartyButtons) "Stylus primary button (hold)" else "Stylus/Pen side button (hold)")
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -265,16 +275,19 @@ fun PreferencesPane(
                     Chip(label, prefs.penButtonTool == id) { update(prefs.copy(penButtonTool = id)) }
                 }
             }
-            FieldLabel("Stylus secondary button (hold)")
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                penButtonOptions.forEach { (id, label) ->
-                    Chip(label, prefs.penSecondaryButtonTool == id) { update(prefs.copy(penSecondaryButtonTool = id)) }
+            if (prefs.spenThirdPartyButtons) {
+                FieldLabel("Stylus secondary button (hold)")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    penButtonOptions.forEach { (id, label) ->
+                        Chip(label, prefs.penSecondaryButtonTool == id) { update(prefs.copy(penSecondaryButtonTool = id)) }
+                    }
                 }
             }
-            if (prefs.penButtonTool in setOf("eraser", "pan") || prefs.penSecondaryButtonTool in setOf("eraser", "pan")) {
+            if (prefs.penButtonTool in setOf("eraser", "pan") ||
+                (prefs.spenThirdPartyButtons && prefs.penSecondaryButtonTool in setOf("eraser", "pan"))) {
                 CheckRow("Activate during hover (no need to touch the screen)", prefs.penButtonHover) {
                     update(prefs.copy(penButtonHover = it))
                 }
