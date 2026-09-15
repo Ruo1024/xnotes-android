@@ -39,7 +39,22 @@ jobs:
             exit 1
           fi
       - name: Install Android toolchain
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$sdk/cmdline-tools"
+          curl --fail --location --retry 3 \
+            https://dl.google.com/android/repository/commandlinetools-linux-15641748_latest.zip \
+            -o "$RUNNER_TEMP/android-tools.zip"
+          unzip -q "$RUNNER_TEMP/android-tools.zip" -d "$RUNNER_TEMP/android-tools"
+          mv "$RUNNER_TEMP/android-tools/cmdline-tools" "$sdk/cmdline-tools/latest"
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          set +o pipefail
+          yes | "$manager" --sdk_root="$sdk" --licenses > /dev/null
+          set -o pipefail
+          "$manager" --sdk_root="$sdk" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk" "$sdk" >> "$GITHUB_ENV"
       - name: Restore fork signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.XNOTES_KEYSTORE_BASE64 }}
