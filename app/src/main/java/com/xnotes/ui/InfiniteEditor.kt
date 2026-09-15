@@ -251,6 +251,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     init {
         view.input = { interaction.onTouch(it) }
         view.genericMotion = { interaction.onGenericMotion(it) }
+        view.onInputFocusLost = { interaction.releaseStylusButtons() }
         view.afterLayout = { applyInitialView() }
         view.onContextReady = { renderFailure = view.failure }
         pad.onSurfaceLost = { endFrontInk(); settleHeld() }
@@ -1325,9 +1326,10 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     }
 
     /** Adopt the app's pen preferences, so the canvas and the paged note behave the same. */
-    fun applyInputPrefs(fingerDraws: Boolean, penButtonTool: Tool?, zoomLockPan: String = "single") {
+    fun applyInputPrefs(fingerDraws: Boolean, penButtonTool: Tool?, zoomLockPan: String = "single", penSecondaryButtonTool: Tool? = penButtonTool) {
         interaction.fingerDraws = fingerDraws
         interaction.penButtonTool = penButtonTool
+        interaction.penSecondaryButtonTool = penSecondaryButtonTool
         interaction.zoomLockPan = zoomLockPan
     }
 
@@ -1395,7 +1397,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     // --- documents ---
 
     fun newCanvas() {
-        replaceDocument(InfiniteDocument())
+        replaceDocument(InfiniteDocument().also { doc -> newCanvasBackground?.let { doc.background = it } })
     }
 
     fun replaceDocument(next: InfiniteDocument) {

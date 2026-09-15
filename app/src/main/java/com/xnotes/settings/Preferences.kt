@@ -40,6 +40,8 @@ data class Preferences(
     val detectShapes: Boolean = false,
     /** Tool the stylus side button activates while held; "none" disables it. */
     val penButtonTool: String = "eraser",
+    /** Separate secondary side button; old settings inherit their single-button mapping. */
+    val penSecondaryButtonTool: String = penButtonTool,
     /** Whether the side-button tool also activates during hover (no contact needed); eraser/pan only. */
     val penButtonHover: Boolean = false,
     /** Action mapped to a clean two-finger tap; "none" (default) disables it. */
@@ -136,6 +138,7 @@ data class Preferences(
         .put("zoom_lock_pan", zoomLockPan)
         .put("detect_shapes", detectShapes)
         .put("pen_button_tool", penButtonTool)
+        .put("pen_button_secondary_tool", penSecondaryButtonTool)
         .put("pen_button_hover", penButtonHover)
         .put("two_finger_tap", twoFingerTap)
         .put("three_finger_tap", threeFingerTap)
@@ -207,6 +210,10 @@ data class Preferences(
                 zoomLockPan = zoomLockPan,
                 detectShapes = o.optBoolean("detect_shapes", false),
                 penButtonTool = o.optString("pen_button_tool", "eraser").ifEmpty { "eraser" },
+                penSecondaryButtonTool = o.optString("pen_button_secondary_tool",
+                    o.optString("pen_button_tool", "eraser")).let {
+                    if (it in setOf("eraser", "pan", "select", "none")) it else "eraser"
+                },
                 penButtonHover = o.optBoolean("pen_button_hover", false),
                 twoFingerTap = tapAction("two_finger_tap"),
                 threeFingerTap = tapAction("three_finger_tap"),

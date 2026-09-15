@@ -545,7 +545,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val canvas = infinite
         canvas.replaceDocument(doc)
         canvas.applyPalette(palette)
-        canvas.applyInputPrefs(settings.prefs.fingerDraws, controller.penButtonTool, settings.prefs.zoomLockPan)
+        canvas.applyInputPrefs(settings.prefs.fingerDraws, controller.penButtonTool, settings.prefs.zoomLockPan, controller.penSecondaryButtonTool)
         canvas.applyZoomRange(settings.prefs.canvasMinZoomPercent, settings.prefs.canvasMaxZoomPercent)
         canvas.onContentChanged = { scheduleCanvasAutosave() }
         // Only a canvas living under the granted folder autosaves; anything else is left alone,
@@ -917,6 +917,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         view.onThreeFingerTap = { dispatchTapGesture(preferences.threeFingerTap) }
         view.hover = { controller.onHover(it) }
         view.genericMotion = { controller.onGenericMotion(it) }
+        view.onInputFocusLost = { controller.releaseStylusButtons() }
         view.drawOverlay = { renderer, _ -> controller.drawOverlay(renderer) }
         controller.frontInk = com.xnotes.canvas.FrontInk(state, view, pad)
         pad.onSurfaceLost = { controller.frontInk?.surfaceLost() }
@@ -1602,6 +1603,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             p.fingerDraws,
             if (p.penButtonTool == "none") null else (Tool.fromId(p.penButtonTool) ?: Tool.ERASER),
             p.zoomLockPan,
+            if (p.penSecondaryButtonTool == "none") null else (Tool.fromId(p.penSecondaryButtonTool) ?: Tool.ERASER),
         )
         infiniteOrNull?.applyZoomRange(p.canvasMinZoomPercent, p.canvasMaxZoomPercent)
         // Both surfaces' pads: the switch is about the device, not about one of them.
@@ -1612,6 +1614,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         controller.zoomLockPan = p.zoomLockPan
         controller.detectShapes = p.detectShapes
         controller.penButtonTool = if (p.penButtonTool == "none") null else (Tool.fromId(p.penButtonTool) ?: Tool.ERASER)
+        controller.penSecondaryButtonTool = if (p.penSecondaryButtonTool == "none") null else (Tool.fromId(p.penSecondaryButtonTool) ?: Tool.ERASER)
         controller.penButtonHover = p.penButtonHover
         state.sideMargin = p.sideMargin
         state.pageBorders = !p.hidePageBorders
@@ -2637,7 +2640,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     fun createBlankCanvasFile(treeUri: String, parentDocId: String, rawName: String): String? {
         val name = uniqueDocumentName(treeUri, parentDocId, rawName, com.xnotes.core.util.DocumentKind.CANVAS)
         return createNoteFile(treeUri, parentDocId, name) {
-            canvasCodec.write(com.xnotes.core.infinite.InfiniteDocument(), it)
+            val doc = com.xnotes.core.infinite.InfiniteDocument()
+            settings.newCanvasBackground?.let { background -> doc.background = background }
+            canvasCodec.write(doc, it)
         }
     }
 

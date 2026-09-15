@@ -62,6 +62,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
 
     /** Stylus side-button presses on the generic-motion stream, for pens that omit them from touch. */
     var genericMotion: ((MotionEvent) -> Unit)? = null
+    var onInputFocusLost: (() -> Unit)? = null
 
     /** Hardware keys arriving while this view holds focus. */
     var onKey: ((KeyEvent) -> Boolean)? = null
@@ -216,6 +217,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
+        onInputFocusLost?.invoke()
         removeCallbacks(idleRunnable)
         super.onDetachedFromWindow()
     }
@@ -345,6 +347,11 @@ class InfiniteCanvasView @JvmOverloads constructor(
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         genericMotion?.invoke(event)
         return super.onGenericMotionEvent(event)
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) onInputFocusLost?.invoke()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =

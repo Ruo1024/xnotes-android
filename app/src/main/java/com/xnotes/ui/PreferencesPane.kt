@@ -256,7 +256,7 @@ fun PreferencesPane(
                 Chip("No pan", prefs.zoomLockPan == "none") { update(prefs.copy(zoomLockPan = "none")) }
             }
             CheckRow("Snap held strokes to shapes (hold the pen still)", prefs.detectShapes) { update(prefs.copy(detectShapes = it)) }
-            FieldLabel("Stylus/Pen side button (hold)")
+            FieldLabel("Stylus primary button (hold)")
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -265,7 +265,16 @@ fun PreferencesPane(
                     Chip(label, prefs.penButtonTool == id) { update(prefs.copy(penButtonTool = id)) }
                 }
             }
-            if (prefs.penButtonTool == "eraser" || prefs.penButtonTool == "pan") {
+            FieldLabel("Stylus secondary button (hold)")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                penButtonOptions.forEach { (id, label) ->
+                    Chip(label, prefs.penSecondaryButtonTool == id) { update(prefs.copy(penSecondaryButtonTool = id)) }
+                }
+            }
+            if (prefs.penButtonTool in setOf("eraser", "pan") || prefs.penSecondaryButtonTool in setOf("eraser", "pan")) {
                 CheckRow("Activate during hover (no need to touch the screen)", prefs.penButtonHover) {
                     update(prefs.copy(penButtonHover = it))
                 }

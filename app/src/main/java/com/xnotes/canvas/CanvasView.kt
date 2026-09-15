@@ -73,6 +73,7 @@ class CanvasView @JvmOverloads constructor(
 
     /** Stylus side-button presses (generic-motion stream), for pens that don't put it in the touch buttonState. */
     var genericMotion: ((MotionEvent) -> Unit)? = null
+    var onInputFocusLost: (() -> Unit)? = null
 
     /** The inline flow text input surface (IME mirror), installed by the Editor. */
     var flowInput: FlowInput? = null
@@ -391,6 +392,11 @@ class CanvasView @JvmOverloads constructor(
         return super.onGenericMotionEvent(event)
     }
 
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) onInputFocusLost?.invoke()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (cacheExecutor?.isShutdown != false) {
@@ -402,6 +408,7 @@ class CanvasView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
+        onInputFocusLost?.invoke()
         cacheExecutor?.shutdown()
         mainHandler.removeCallbacks(debugTick)
         mainHandler.removeCallbacks(sharpDebounce)

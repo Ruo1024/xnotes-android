@@ -2,13 +2,13 @@ package com.xnotes.canvas
 
 import android.view.KeyEvent
 import android.view.MotionEvent
+import com.xnotes.core.tools.Tool
 
 /**
- * Whether a stylus side button is currently down.
+ * Which stylus side buttons are currently down.
  *
  * Pens do not agree on how to report this, and getting it right took several releases of
- * device-specific work, so the infinite canvas latches it through this rather than working it out
- * again. Three delivery routes are covered:
+ * device-specific work, so both canvases use this shared state. Three delivery routes are covered:
  *
  *  - the touch stream's `buttonState`, which most pens use;
  *  - the hovering generic-motion stream, for pens that report the button only while hovering and
@@ -20,51 +20,79 @@ import android.view.MotionEvent
  * button-held stroke with proprietary action codes instead of DOWN/MOVE/UP, and `MainActivity`
  * rewrites those before dispatch, so any view in the tree gets a normal touch stream.
  *
- * The button masks and the vendor keycode are read from [InteractionController] rather than copied,
- * so the two canvases cannot drift apart on which buttons count.
+ * Button masks are normalized here so the two canvases cannot drift apart. The existing vendor
+ * key still uses the primary-button mapping.
  */
 class StylusButtonLatch {
+    private val keys = mutableSetOf<Int>()
+    private var motionButtons = 0
 
-    /** True while a side button is held, from whichever stream reported it. */
-    var held = false
-        private set
+    val held: Boolean get() = buttons() != 0
 
-    /**
-     * Latch the button off the generic-motion (hover) stream. This **assigns** rather than ORs, so
-     * a pen that reports on both this stream and as a key event cannot latch stuck on. Returns true
-     * when the button has just gone up, so a caller can end a hovering gesture.
-     */
     fun onGenericMotion(e: MotionEvent): Boolean {
         if (e.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) return false
-        held = (e.buttonState and InteractionController.STYLUS_BUTTON_MASK) != 0
+        updateMotion(e.buttonState, e.actionMasked, e.actionButton)
         return !held
     }
 
-    /**
-     * Latch the button off a key event. Returns true when [keyCode] was a stylus side button, so
-     * the host consumes it instead of letting it fall through as a normal key.
-     */
+    internal fun updateMotion(state: Int, action: Int, actionButton: Int = 0) {
+        motionButtons = normalize(state)
+        if (action == MotionEvent.ACTION_BUTTON_RELEASE) {
+            val released = normalize(actionButton)
+            keys.removeAll { keyMask(it) and released != 0 }
+            motionButtons = motionButtons and released.inv()
+        }
+    }
+
     fun onKey(keyCode: Int, down: Boolean): Boolean {
-        if (!isStylusButtonKey(keyCode)) return false
-        held = down
+        val mask = keyMask(keyCode)
+        if (mask == 0) return false
+        if (down) keys.add(keyCode) else {
+            keys.remove(keyCode)
+            // Some pens release on a different stream than the press.
+            motionButtons = motionButtons and mask.inv()
+        }
         return true
     }
 
     fun reset() {
-        held = false
+        keys.clear()
+        motionButtons = 0
     }
 
-    /** Whether [e] is a stylus contact with the side button down, on either route. */
-    fun heldFor(e: MotionEvent): Boolean =
-        e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS &&
-            ((e.buttonState and InteractionController.STYLUS_BUTTON_MASK) != 0 || held)
+    fun toolFor(e: MotionEvent, primary: Tool?, secondary: Tool?): Tool? =
+        if (e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS)
+            toolForButtons(e.buttonState, primary, secondary) else null
+
+    /** Secondary takes priority when both are held. A disabled button has no effect. */
+    internal fun toolForButtons(state: Int, primary: Tool?, secondary: Tool?): Tool? {
+        val active = buttons() or normalize(state)
+        return when {
+            active and SECONDARY != 0 && secondary != null -> secondary
+            active and PRIMARY != 0 -> primary
+            else -> null
+        }
+    }
+
+    private fun buttons(): Int = keys.fold(motionButtons) { mask, key -> mask or keyMask(key) }
 
     companion object {
-        fun isStylusButtonKey(keyCode: Int): Boolean =
-            keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY ||
-                keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY ||
-                keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_TERTIARY ||
-                keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_TAIL ||
-                keyCode == InteractionController.VENDOR_HELD_BUTTON_KEYCODE
+        private const val PRIMARY = 1
+        private const val SECONDARY = 2
+
+        private fun normalize(state: Int): Int =
+            (if (state and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY) != 0) PRIMARY else 0) or
+                (if (state and (MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_TERTIARY) != 0) SECONDARY else 0)
+
+        private fun keyMask(key: Int): Int = when (key) {
+            KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY -> SECONDARY
+            KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY,
+            KeyEvent.KEYCODE_STYLUS_BUTTON_TERTIARY,
+            KeyEvent.KEYCODE_STYLUS_BUTTON_TAIL,
+            InteractionController.VENDOR_HELD_BUTTON_KEYCODE -> PRIMARY
+            else -> 0
+        }
+
+        fun isStylusButtonKey(keyCode: Int): Boolean = keyMask(keyCode) != 0
     }
 }

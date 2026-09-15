@@ -14,6 +14,20 @@ import org.junit.Test
 
 class SettingsTest {
 
+    @Test fun oldSideButtonPreferenceIsInheritedBySecondary() {
+        val old = JSONObject().put("pen_button_tool", "pan")
+        val saved = Preferences.fromJson(old).toJson()
+        assertEquals("pan", saved.optString("pen_button_secondary_tool"))
+    }
+
+    @Test fun secondaryButtonCanBeDisabledIndependently() {
+        val prefs = JSONObject().put("pen_button_tool", "eraser")
+            .put("pen_button_secondary_tool", "none")
+        val saved = Preferences.fromJson(prefs).toJson()
+        assertEquals("eraser", saved.getString("pen_button_tool"))
+        assertEquals("none", saved.optString("pen_button_secondary_tool"))
+    }
+
     @Test fun emptyJsonYieldsDefaults() {
         val s = Settings.fromJson(JSONObject())
         assertEquals(7, s.toolbarColors.size)

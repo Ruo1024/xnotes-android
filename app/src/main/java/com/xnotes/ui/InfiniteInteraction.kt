@@ -123,6 +123,7 @@ class InfiniteInteraction(
 
     /** Tool the stylus side button arms while it is held; null leaves the button alone. */
     var penButtonTool: Tool? = Tool.ERASER
+    var penSecondaryButtonTool: Tool? = Tool.ERASER
 
     /** Zoom lock: a pinch pans without changing the zoom, mirroring the paged canvas. */
     var zoomLocked: Boolean = false
@@ -209,7 +210,7 @@ class InfiniteInteraction(
             MotionEvent.ACTION_MOVE -> handleMove(e)
             MotionEvent.ACTION_POINTER_UP -> handlePointerUp(e)
             MotionEvent.ACTION_UP -> handleUp(e)
-            MotionEvent.ACTION_CANCEL -> abortGesture()
+            MotionEvent.ACTION_CANCEL -> { releaseStylusButtons(); abortGesture() }
         }
         return true
     }
@@ -224,6 +225,8 @@ class InfiniteInteraction(
 
     /** Latch a side button delivered as a key event, which is all Bluetooth and USI pens send. */
     fun onStylusButtonKey(keyCode: Int, down: Boolean): Boolean = stylusButtons.onKey(keyCode, down)
+
+    fun releaseStylusButtons() = stylusButtons.reset()
 
     /** Drop any in-flight gesture and stop a glide, so a document swap cannot bleed into the next. */
     fun resetGestureState() {
@@ -257,11 +260,11 @@ class InfiniteInteraction(
         // both override the armed tool, and a finger pans unless finger-draw is on. This mirrors
         // the paged canvas so a pen behaves the same on either surface.
         val toolType = e.getToolType(0)
-        val buttonHeld = stylusButtons.heldFor(e)
+        val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool)
         val onSelection = hitsSelection(viewport.viewportToContent(Pt(vx, vy)))
         val effective: Tool = when {
             toolType == MotionEvent.TOOL_TYPE_ERASER -> Tool.ERASER
-            buttonHeld && penButtonTool != null -> penButtonTool!!
+            buttonTool != null -> buttonTool
             // While something is selected, a press on it grabs it rather than inking through it,
             // and a finger may grab it even with finger-draw off. Both are the paged canvas's
             // rules; without them a selection could only be handled by a stylus.
@@ -287,7 +290,7 @@ class InfiniteInteraction(
             effective == Tool.SHAPE -> beginShape(vx, vy)
             effective == Tool.SELECT -> beginSelect(vx, vy)
             effective == Tool.LASSO -> beginLasso(vx, vy)
-            else -> beginPan(vx, vy, fromPenButton = buttonHeld && penButtonTool == Tool.PAN)
+            else -> beginPan(vx, vy, fromPenButton = buttonTool == Tool.PAN)
         }
     }
 
