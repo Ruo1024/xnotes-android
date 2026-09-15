@@ -174,7 +174,7 @@ fun ToolConfigPopup(editor: ToolPopupHost, tool: Tool, onDismiss: () -> Unit) {
             if (tool.isStroke && tool != Tool.HIGHLIGHTER && tool != Tool.DASHED) {
                 ToggleRow("NEON", glow) { glow = it; emit() }
                 if (glow) {
-                    SliderRow("INTENSITY", glowIntensity, 0f..100f) { glowIntensity = it; emit() }
+                    SliderRow("GLOW INTENSITY", glowIntensity, 0f..100f) { glowIntensity = it; emit() }
                 }
             }
         }
@@ -250,7 +250,7 @@ fun StylesPopup(editor: Editor, onDismiss: () -> Unit) {
 
             Spacer(Modifier.size(12.dp))
             val spacing = style.spacing ?: PageStyle.DEFAULT_SPACING
-            StyleCaption("SPACING  ${spacing.toInt()} px" + if (style.spacing == null) "  (default)" else "")
+            StyleCaption("${localizedText("SPACING")}  ${spacing.toInt()} px" + if (style.spacing == null) "  (${localizedText("Default")})" else "")
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ModeChip("Default", style.spacing == null) { apply(style.copy(spacing = null)) }
                 Slider(
@@ -280,7 +280,7 @@ fun StylesPopup(editor: Editor, onDismiss: () -> Unit) {
 
             Spacer(Modifier.size(12.dp))
             val opacityPct = effPatternColor.a * 100f / 255f
-            StyleCaption("OPACITY  ${opacityPct.roundToInt()}%")
+            StyleCaption("${localizedText("OPACITY")}  ${opacityPct.roundToInt()}%")
             Slider(
                 value = opacityPct,
                 onValueChange = { pct ->
@@ -365,7 +365,7 @@ fun MarginsPopup(editor: Editor, onDismiss: () -> Unit) {
             }
 
             Spacer(Modifier.size(12.dp))
-            StyleCaption("${edge.label.uppercase()}  ${percent.roundToInt()}%" + if (own == null) "  (default)" else "")
+            StyleCaption("${localizedText(edge.label.uppercase())}  ${percent.roundToInt()}%" + if (own == null) "  (${localizedText("Default")})" else "")
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ModeChip("Default", own == null) { apply(margins.withEdge(edge, null)) }
                 Slider(
@@ -450,7 +450,7 @@ fun ViewMenuPopup(editor: Editor, onDismiss: () -> Unit) {
             ToggleRow("DON'T FILTER IMAGES", vs.keepImages) { setKeepImages(it) }
 
             Spacer(Modifier.size(10.dp))
-            StyleCaption("ROTATE  ${vs.rotation}°")
+            StyleCaption("${localizedText("ROTATE")}  ${vs.rotation}°")
             Slider(
                 value = vs.rotation.toFloat(),
                 onValueChange = { setRotation((it / 90f).roundToInt() * 90) },
@@ -747,7 +747,7 @@ fun ShapeConfigPopup(editor: ToolPopupHost, onDismiss: () -> Unit) {
             }
             ToggleRow("NEON", glow) { glow = it; emit() }
             if (glow) {
-                SliderRow("INTENSITY", glowIntensity, 0f..100f) { glowIntensity = it; emit() }
+                SliderRow("GLOW INTENSITY", glowIntensity, 0f..100f) { glowIntensity = it; emit() }
             }
         }
     }
@@ -797,7 +797,7 @@ internal fun SliderRow(
 ) {
     Column {
         Text(
-            "$label  ${"%.0f".format(value)}",
+            "${localizedText(label)}  ${"%.0f".format(value)}",
             color = (if (enabled) LocalPalette.current.text else LocalPalette.current.textDim).toComposeColor(),
             fontFamily = FontFamily.Monospace,
             fontSize = 12.sp,

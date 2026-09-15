@@ -55,7 +55,7 @@ fun CanvasWaypointsPopup(editor: InfiniteEditor, onDismiss: () -> Unit) {
                     Modifier.fillMaxWidth().padding(vertical = 1.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
+                    androidx.compose.material3.Text(
                         waypoint.name,
                         color = palette.text.toComposeColor(),
                         fontFamily = FontFamily.Monospace,

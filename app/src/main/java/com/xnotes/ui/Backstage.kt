@@ -1201,7 +1201,7 @@ private fun ExplorerSearchField(query: String, onQueryChange: (String) -> Unit, 
 @Composable
 private fun Crumb(text: String, current: Boolean, onClick: () -> Unit) {
     val palette = LocalPalette.current
-    Text(
+    androidx.compose.material3.Text(
         text,
         color = (if (current) palette.text else palette.textDim).toComposeColor(),
         fontSize = 14.sp,
@@ -1331,7 +1331,7 @@ private fun StackedNoteCard(editor: Editor, entry: BrowseEntry, modifier: Modifi
             }
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
-            Text(entryLabel(entry), color = palette.text.toComposeColor(), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            androidx.compose.material3.Text(entryLabel(entry), color = palette.text.toComposeColor(), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val date = entryDate(entry)
             if (date.isNotEmpty()) {
                 Text(date, color = palette.textDim.toComposeColor(), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1402,7 +1402,7 @@ private fun FolderChip(
     ) {
         Icon(XnotesIcons.folder, null, tint = if (active) onAccent else palette.textDim.toComposeColor(), modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
-        Text(
+        androidx.compose.material3.Text(
             entryLabel(entry), color = if (active) onAccent else palette.text.toComposeColor(), fontSize = 13.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
         )
@@ -1503,7 +1503,7 @@ private fun FileTile(
                 .then(if (!selected && codeColor != null) Modifier.colorHatch(codeColor) else Modifier)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            Text(
+            androidx.compose.material3.Text(
                 entryLabel(entry), color = if (selected) onAccent else palette.text.toComposeColor(), fontSize = 13.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )

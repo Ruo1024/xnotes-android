@@ -100,7 +100,8 @@ fun InfiniteToolbar(
                 for (entry in section.visibleEntries) {
                     when (val item = entry.item) {
                         ToolbarItem.HOME -> ToolbarIcon(XnotesIcons.prev, "Home") { onOpenBackstage() }
-                        ToolbarItem.TITLE -> Label(editor.title, Modifier.padding(end = 4.dp))
+                        ToolbarItem.TITLE -> Label(editor.title, Modifier.padding(end = 4.dp),
+                            localize = editor.document.displayName == null && editor.document.path == null)
 
                         in CANVAS_TOOL_OF -> {
                             val tool = CANVAS_TOOL_OF.getValue(item)

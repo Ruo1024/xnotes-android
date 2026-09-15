@@ -166,6 +166,7 @@ private fun ToolbarItemView(
         ToolbarItem.HOME -> ToolbarIcon(XnotesIcons.prev, "Home") { onOpenBackstage() }
         ToolbarItem.TITLE -> Label(
             editor.title,
+            localize = editor.state.document.displayName == null && editor.state.document.path == null,
             modifier = Modifier
                 .widthIn(max = 160.dp)
                 .clip(RoundedCornerShape(4.dp))
@@ -393,9 +394,9 @@ internal fun Swatch(color: androidx.compose.ui.graphics.Color, active: Boolean, 
 }
 
 @Composable
-internal fun Label(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text = text,
+internal fun Label(text: String, modifier: Modifier = Modifier, localize: Boolean = true) {
+    androidx.compose.material3.Text(
+        text = if (localize) localizedText(text) else text,
         color = LocalPalette.current.textDim.toComposeColor(),
         fontFamily = FontFamily.Monospace,
         fontSize = 12.sp,

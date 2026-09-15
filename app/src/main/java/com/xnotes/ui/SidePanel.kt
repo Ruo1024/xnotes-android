@@ -456,7 +456,7 @@ private fun ContentsTab(editor: Editor) {
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
+                androidx.compose.material3.Text(
                     e.title,
                     color = (if (hasTarget) palette.text else palette.textDim).toComposeColor(),
                     fontSize = 12.sp,
@@ -492,8 +492,8 @@ private fun BookmarksTab(editor: Editor) {
                         Modifier.fillMaxWidth().clickable { editor.goToPage(bm.page) }.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            "${bm.label} · p.${bm.page + 1}",
+                        androidx.compose.material3.Text(
+                            "${bm.label} · ${localizedText("Page ${bm.page + 1}")}",
                             color = palette.text.toComposeColor(),
                             fontSize = 12.sp,
                             modifier = Modifier.weight(1f),

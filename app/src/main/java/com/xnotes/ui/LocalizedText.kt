@@ -186,7 +186,7 @@ private val ZH_HANS = mapOf(
     "Documents" to "文档",
     "Done" to "完成",
     "Dots" to "点阵",
-    "Double" to "双指",
+    "Double" to "双页",
     "Draw with finger (off = finger pans)" to "用手指绘制（关闭时手指用于平移）",
     "Duplicate" to "创建副本",
     "ERASER" to "橡皮擦",
@@ -274,7 +274,8 @@ private val ZH_HANS = mapOf(
     "New folder" to "新建文件夹",
     "New note" to "新笔记",
     "New notes" to "新笔记",
-    "NEON" to "霓虹",
+    "NEON" to "发光效果",
+    "GLOW INTENSITY" to "发光强度",
     "Next page" to "下一页",
     "No pan" to "不平移",
     "No saved views yet." to "尚无已保存视图。",
@@ -342,7 +343,7 @@ private val ZH_HANS = mapOf(
     "SCREENSHOT" to "截图",
     "Screenshot" to "截图",
     "SELECT" to "选择",
-    "SENSITIVITY" to "灵敏度",
+    "SENSITIVITY" to "压感灵敏度",
     "SHAPE" to "形状",
     "Shape" to "形状",
     "SIZE" to "大小",
@@ -362,7 +363,7 @@ private val ZH_HANS = mapOf(
     "Show sidebar" to "显示侧边栏",
     "Side panel" to "侧边栏",
     "Sidebar" to "侧边栏",
-    "Single" to "单指",
+    "Single" to "单页",
     "Single-finger pan" to "单指平移",
     "Size" to "大小",
     "Size (pt)" to "大小（磅）",
@@ -429,7 +430,7 @@ private val ZH_HANS = mapOf(
     "VIEWING MODE" to "查看模式",
     "Waypoints" to "保存的视图",
     "WAYPOINTS" to "保存的视图",
-    "WIDTH" to "宽度",
+    "WIDTH" to "笔画宽度",
     "Width (mm)" to "宽度（毫米）",
     "Writing the PDF…" to "正在写入 PDF…",
     "YYYY YY MM DD HH mm ss expand to the creation date and time. # becomes the number " to "YYYY YY MM DD HH mm ss 会展开为创建日期和时间。# 会变为序号 ",
@@ -450,6 +451,22 @@ private val ZH_HANS = mapOf(
     "— no table of contents —" to "— 没有目录 —",
     "‹  Save as" to "‹  另存为",
     "‹  Share as" to "‹  分享为",
+    ".xcanvas file" to ".xcanvas 文件",
+    "Default for new canvases" to "设为新画布默认样式",
+    "Disable front buffering" to "禁用前缓冲绘制",
+    "Front buffering paints the pen's ink straight into the frame the screen is showing, which is what makes it feel instant. A few panels do not hand that over cleanly, and there the ink can flicker or fall behind the nib. Turn it off on those and every stroke goes through the ordinary canvas." to "前缓冲绘制可降低笔迹延迟。部分屏幕可能出现笔迹闪烁或跟笔延迟，遇到这些问题时可关闭此功能，使用常规画布绘制。",
+    "Stylus primary button (hold)" to "笔主按钮（按住）",
+    "Stylus secondary button (hold)" to "笔副按钮（按住）",
+    "Screen" to "滤色",
+    "Multiply" to "正片叠底",
+    "Tint" to "着色",
+    "Off" to "关闭",
+    "ROTATE" to "旋转",
+    "TOP" to "顶部",
+    "BOTTOM" to "底部",
+    "LEFT" to "左侧",
+    "RIGHT" to "右侧",
+    "  mono" to "  等宽",
 )
 
 internal fun zhHans(text: String): String {
@@ -473,6 +490,8 @@ internal fun zhHans(text: String): String {
     }
     Regex("Saved (\\d+) images?\\.").matchEntire(text)?.let { return "已保存 ${it.groupValues[1]} 张图片。" }
     Regex("Writing (\\d+) pages?…").matchEntire(text)?.let { return "正在写入 ${it.groupValues[1]} 页…" }
+    Regex("Writing (\\d+) items?…").matchEntire(text)?.let { return "正在写入 ${it.groupValues[1]} 个对象…" }
+    Regex("item (\\d+) / (\\d+)").matchEntire(text)?.let { return "对象 ${it.groupValues[1]} / ${it.groupValues[2]}" }
     Regex("page (\\d+) / (\\d+)").matchEntire(text)?.let { return "第 ${it.groupValues[1]} / ${it.groupValues[2]} 页" }
     Regex("Refining PDF colours (\\d+)/(\\d+) pages…").matchEntire(text)?.let {
         return "正在优化 PDF 颜色 ${it.groupValues[1]}/${it.groupValues[2]} 页…"
