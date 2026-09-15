@@ -101,6 +101,13 @@ class SettingsTest {
         assertEquals("undo", back.stylusButton2Tap)
     }
 
+    @Test fun frontBufferingIsOnUntilItIsTurnedOff() {
+        // Settings written before the switch existed, which is every install that has one.
+        assertFalse(Settings.fromJson(JSONObject()).prefs.disableFrontBuffering)
+        val back = Settings.fromJson(Settings(prefs = Preferences(disableFrontBuffering = true)).toJson()).prefs
+        assertTrue(back.disableFrontBuffering)
+    }
+
     @Test fun customPageSizeRoundTripsAndSizesANewPage() {
         val prefs = Preferences(
             defaultPageSize = PageSize.CUSTOM,
@@ -194,6 +201,30 @@ class SettingsTest {
         assertEquals(style, back.newNoteStyle)
         assertNull(back.newNoteStyle.pageColor)
         assertNull(back.newNoteStyle.spacing)
+    }
+
+    @Test fun newCanvasBackgroundNullByDefaultAndUnwritten() {
+        val s = Settings.fromJson(JSONObject())
+        assertNull(s.newCanvasBackground)
+        assertFalse(s.toJson().has("new_canvas_background"))
+    }
+
+    @Test fun newCanvasBackgroundRoundTrips() {
+        val bg = com.xnotes.core.infinite.CanvasBackground(
+            pattern = com.xnotes.core.model.PagePattern.DOTS,
+            patternColor = Rgba(40, 60, 90, 120),
+            spacing = 52.0,
+            paperColor = Rgba(250, 244, 226),
+        )
+        val back = Settings.fromJson(Settings(newCanvasBackground = bg).toJson())
+        assertEquals(bg, back.newCanvasBackground)
+    }
+
+    @Test fun newCanvasBackgroundKeepsThemePaperWhenUnset() {
+        val bg = com.xnotes.core.infinite.CanvasBackground(pattern = com.xnotes.core.model.PagePattern.NONE)
+        val back = Settings.fromJson(Settings(newCanvasBackground = bg).toJson())
+        assertEquals(bg, back.newCanvasBackground)
+        assertNull(back.newCanvasBackground?.paperColor)
     }
 
     @Test fun fingerDrawAutoCheckedDefaultsFalse() {

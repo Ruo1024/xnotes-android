@@ -466,6 +466,32 @@ private fun SortOption(
 
 // --- home pane: the folder explorer ---
 
+/** The three things the explorer can add to the current folder; shared by the New menu and the FAB. */
+@Composable
+private fun NewItemMenuItems(
+    onClose: () -> Unit,
+    onCreateMode: (CreateMode) -> Unit,
+    onImportPdf: () -> Unit,
+) {
+    val tint = LocalPalette.current.text.toComposeColor()
+    // Taller than a default menu row (the explorer's primary create affordance), but only as wide
+    // as the longest label plus a margin. The end padding is the larger of the two on purpose: the
+    // icons carry ~1dp of their own inset, so an equal split reads as tight on the text side.
+    val row = Modifier.height(52.dp)
+    val pad = PaddingValues(start = 14.dp, end = 18.dp)
+    @Composable
+    fun item(icon: ImageVector, label: String, onPick: () -> Unit) = DropdownMenuItem(
+        text = { Text(label, fontSize = 16.sp) },
+        leadingIcon = { Icon(icon, null, tint = tint, modifier = Modifier.size(21.dp)) },
+        onClick = { onClose(); onPick() },
+        modifier = row,
+        contentPadding = pad,
+    )
+    item(XnotesIcons.edit, "New Note") { onCreateMode(CreateMode.FILE) }
+    item(XnotesIcons.canvas, "New Canvas") { onCreateMode(CreateMode.CANVAS) }
+    item(XnotesIcons.importDoc, "Import PDF") { onImportPdf() }
+}
+
 @Composable
 private fun HomePane(
     editor: Editor,
@@ -519,17 +545,22 @@ private fun HomePane(
                 onShareFile, onSaveCopyFile, onExportFilePdf, createMode, onCreateMode,
                 searchQuery = query, onSearchChange = { query = it }, onOpenSplit = onOpenSplit,
             )
-            // A round quick-create button for a new note in the current folder. Only when a folder is
-            // granted — otherwise the explorer shows the folder-picker prompt and there's nowhere to create.
+            // A round quick-create button: the same three things as the explorer's New menu, landed in
+            // the current folder. Only with a folder granted, else there's nowhere to create.
             if (editor.browseRoot != null) {
-                FloatingActionButton(
-                    onClick = { onCreateMode(CreateMode.FILE) },
-                    shape = CircleShape,
-                    containerColor = palette.accent.toComposeColor(),
-                    contentColor = palette.bg.toComposeColor(),
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-                ) {
-                    Icon(XnotesIcons.edit, localizedText("New note"), modifier = Modifier.size(24.dp))
+                var createMenuOpen by remember { mutableStateOf(false) }
+                Box(Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
+                    FloatingActionButton(
+                        onClick = { createMenuOpen = true },
+                        shape = CircleShape,
+                        containerColor = palette.accent.toComposeColor(),
+                        contentColor = palette.bg.toComposeColor(),
+                    ) {
+                        Icon(XnotesIcons.edit, localizedText("New"), modifier = Modifier.size(24.dp))
+                    }
+                    DropdownMenu(expanded = createMenuOpen, onDismissRequest = { createMenuOpen = false }) {
+                        NewItemMenuItems({ createMenuOpen = false }, onCreateMode, onImportPdf)
+                    }
                 }
             }
         }
@@ -672,9 +703,7 @@ private fun ExplorerSection(
                 Box {
                     IconAction(XnotesIcons.plus, "New") { newMenuOpen = true }
                     DropdownMenu(expanded = newMenuOpen, onDismissRequest = { newMenuOpen = false }) {
-                        DropdownMenuItem(text = { Text("New Note") }, onClick = { newMenuOpen = false; onCreateMode(CreateMode.FILE) })
-                        DropdownMenuItem(text = { Text("New Canvas") }, onClick = { newMenuOpen = false; onCreateMode(CreateMode.CANVAS) })
-                        DropdownMenuItem(text = { Text("Import PDF") }, onClick = { newMenuOpen = false; onImportPdf() })
+                        NewItemMenuItems({ newMenuOpen = false }, onCreateMode, onImportPdf)
                     }
                 }
                 IconAction(XnotesIcons.newFolder, "New folder") { onCreateMode(CreateMode.FOLDER) }

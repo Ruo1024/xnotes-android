@@ -480,10 +480,14 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             it.recentColors = recentColors
             it.toolbarColorCount = toolbarColorCount
             it.toolbarLayout = canvasToolbarLayout
+            it.pad.frontBuffering = !settings.prefs.disableFrontBuffering
             it.pickColor(activeColorIndex)
             // A style tuned on the canvas is the same style, so it persists through this editor.
             it.onToolStyleChanged = { settingsDirty = true }
             it.onSwatchColorChanged = { index, color -> adoptSwatchColor(index, color) }
+            // The new-canvas background lives in the settings file this editor owns.
+            it.newCanvasBackground = newCanvasBackground
+            it.onSaveNewCanvasBackground = { bg -> saveNewCanvasBackground(bg) }
             it.onColorRemembered = { color ->
                 settings = settings.rememberColor(color)
                 it.recentColors = recentColors
@@ -509,7 +513,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** Open a fresh, unsaved infinite canvas on top of backstage. */
     fun newCanvas() {
-        openCanvasDocument(com.xnotes.core.infinite.InfiniteDocument(), uri = null, displayName = null)
+        val doc = com.xnotes.core.infinite.InfiniteDocument()
+        settings.newCanvasBackground?.let { doc.background = it }
+        openCanvasDocument(doc, uri = null, displayName = null)
     }
 
     /**
@@ -1598,6 +1604,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             p.zoomLockPan,
         )
         infiniteOrNull?.applyZoomRange(p.canvasMinZoomPercent, p.canvasMaxZoomPercent)
+        // Both surfaces' pads: the switch is about the device, not about one of them.
+        pad.frontBuffering = !p.disableFrontBuffering
+        infiniteOrNull?.pad?.frontBuffering = !p.disableFrontBuffering
         state.pageColorOverride = if (p.defaultTemplate == "color") p.pageColor else null
         controller.fingerDraws = p.fingerDraws
         controller.zoomLockPan = p.zoomLockPan
@@ -1630,6 +1639,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         settings = settings.copy(prefs = p)
         fullscreen = p.startFullscreen ?: !deviceHasDisplayCutout // keep in sync (e.g. Reset to defaults)
         applyPagePrefsToState(p)
+        // The other pane took its pad from the settings it loaded, so a live change has to reach it.
+        secondary?.pad?.frontBuffering = !p.disableFrontBuffering
         republishFlow(invalidate = true) // re-bake flow colours (default text, code) for the new appearance
         state.invalidateAllCaches()
         if (marginChanged) {
@@ -1872,6 +1883,18 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         if (newNoteFlow == defaults) return
         newNoteFlow = defaults
         settings = settings.copy(newNoteFlow = defaults)
+        settingsRepo.save(settings)
+    }
+
+    /** The saved background stamped onto newly created canvases (null ⇒ app built-ins). */
+    var newCanvasBackground by mutableStateOf(settings.newCanvasBackground)
+        private set
+
+    /** Save (or, passing null, forget) the background new canvases start with. */
+    fun saveNewCanvasBackground(background: com.xnotes.core.infinite.CanvasBackground?) {
+        if (newCanvasBackground == background) return
+        newCanvasBackground = background
+        settings = settings.copy(newCanvasBackground = background)
         settingsRepo.save(settings)
     }
 
@@ -2373,7 +2396,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                     renderCanvasThumbnailSquare(doc, tilePx)?.also { thumbCache.store(uri, it) }
                         ?: return@withContext null
                 } finally {
-                    for (item in doc.items) if (item is ImageItem) runCatching { item.image.file.delete() }
+                    deleteCanvasImageTemps(doc)
                 }
             }
             val img = bmp.asImageBitmap()
@@ -2433,6 +2456,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         for (page in doc.pages) for (item in page.items) {
             if (item is ImageItem) runCatching { item.image.file.delete() }
         }
+    }
+
+    /** [deleteImageTemps] for a canvas, whose items are one flat list rather than per page. */
+    private fun deleteCanvasImageTemps(doc: com.xnotes.core.infinite.InfiniteDocument) {
+        for (item in doc.items) if (item is ImageItem) runCatching { item.image.file.delete() }
     }
 
     /** Drop a note's cached tile (memory + disk) so it re-renders with fresh content next time it's shown. */
@@ -3382,6 +3410,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         }
         val filterChanged = prev.contrast != new.contrast || prev.invert != new.invert ||
             prev.brightness != new.brightness || prev.sepia != new.sepia ||
+            prev.multiply != new.multiply || prev.screen != new.screen ||
             prev.keepImages != new.keepImages
         if (filterChanged) {
             state.invalidateAllBackgrounds()
@@ -3397,7 +3426,10 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     private fun pdfPageFilter(): com.xnotes.canvas.PdfPageFilter = pdfPageFilterFor(viewSettings)
 
     private fun pdfPageFilterFor(vs: com.xnotes.canvas.ViewSettings): com.xnotes.canvas.PdfPageFilter =
-        com.xnotes.canvas.PdfPageFilter.of(vs.contrast, vs.invert, vs.brightness, vs.sepia, keepImages = vs.keepImages)
+        com.xnotes.canvas.PdfPageFilter.of(
+            vs.contrast, vs.invert, vs.brightness, vs.sepia, vs.multiply, vs.screen,
+            keepImages = vs.keepImages,
+        )
 
     /** A note's resolved View-menu settings by URI: the open note's live value, a folder note's
      *  remembered overrides over the global defaults, else the defaults themselves. */
@@ -3411,6 +3443,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     private fun pdfKeepsImageColors(): Boolean = viewSettings.keepImages &&
         !com.xnotes.canvas.PdfColorFilter.isIdentity(
             viewSettings.contrast, viewSettings.invert, viewSettings.brightness, viewSettings.sepia,
+            viewSettings.multiply, viewSettings.screen,
         )
 
     /** Drop every cached side-panel thumbnail backed by a PDF page (the filter changed). */
@@ -3604,7 +3637,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                 if (e.isDir) {
                     stack.addLast(browseDocId(e.documentUri))
                 } else {
-                    val display = if (e.name.endsWith(".xnote", ignoreCase = true)) e.name.dropLast(6) else e.name
+                    val display = com.xnotes.core.util.DocumentKind.stripSuffix(e.name)
                     if (display.contains(needle, ignoreCase = true)) out.add(e)
                 }
             }
@@ -3633,13 +3666,23 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         appContext.contentResolver.openInputStream(android.net.Uri.parse(srcUri))?.use { it.copyTo(out) }
     }
 
-    /** Loads the note at [srcUri] and writes it flattened to a PDF in [out] (share-as-PDF / export). */
+    /**
+     * Loads the document at [srcUri] and writes it flattened to a PDF in [out] (share-as-PDF /
+     * export). Dispatches on the stored file's kind, because a canvas is a different bundle read by a
+     * different codec and flattened by a different exporter. The decision lives here rather than at
+     * the call sites so neither of them can forget it and export an `.xcanvas` as a paged note.
+     */
     fun exportFileToPdf(
         srcUri: String,
         out: OutputStream,
         onProgress: (Int, Int) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false },
     ) {
+        val name = queryDisplayName(android.net.Uri.parse(srcUri)).orEmpty()
+        if (com.xnotes.core.util.DocumentKind.ofName(name) == com.xnotes.core.util.DocumentKind.CANVAS) {
+            exportCanvasFileToPdf(srcUri, out, onProgress, isCancelled)
+            return
+        }
         val doc = appContext.contentResolver.openInputStream(android.net.Uri.parse(srcUri))?.use { codec.read(it, pdfDir, imageDir) } ?: return
         val src = doc.pdfFile?.let { com.xnotes.platform.PdfSource.create(appContext, it) }
         try {
@@ -3654,6 +3697,30 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             src?.close()
             doc.pdfFile?.delete() // transient doc loaded just for export; drop its extracts
             deleteImageTemps(doc)
+        }
+    }
+
+    /**
+     * The canvas half of [exportFileToPdf]: one page cut to the drawing. The paper is the canvas's own
+     * colour where it set one, else the theme's, which is what the explorer tile and the live canvas
+     * both show.
+     */
+    private fun exportCanvasFileToPdf(
+        srcUri: String,
+        out: OutputStream,
+        onProgress: (Int, Int) -> Unit,
+        isCancelled: () -> Boolean,
+    ) {
+        val doc = appContext.contentResolver.openInputStream(android.net.Uri.parse(srcUri))
+            ?.use { canvasCodec.read(it, imageDir) } ?: return
+        try {
+            com.xnotes.platform.CanvasPdfExporter.export(
+                appContext, doc, out,
+                doc.background.paperColor ?: state.palette.paper,
+                onProgress, isCancelled,
+            )
+        } finally {
+            deleteCanvasImageTemps(doc) // transient doc loaded just for export; drop its extracts
         }
     }
 
