@@ -23,4 +23,4 @@ JAVA_HOME=/path/to/jdk-17 ./gradlew testDebugUnitTest assembleDebug
 
 输出：`app/build/outputs/apk/debug/app-debug.apk`。自行构建的 Debug 签名与 Release 不同。
 
-正式发布使用 GitHub Actions 的 **Build and publish Chinese APK** 工作流，填写版本标签后运行。签名从仓库 Secrets 的 `XNOTES_KEYSTORE_BASE64`、`XNOTES_STORE_PASSWORD` 读取；更换签名会影响覆盖安装。替换已有 Release 时勾选 `replace_existing`，并先递增 [.github/ci-release.gradle](.github/ci-release.gradle) 中的内部版本号及工作流中的版本检查。
+正式发布使用 GitHub Actions 的 **Build and publish Chinese APK** 工作流。发布前递增 [.github/release.properties](.github/release.properties) 中的 `versionCode`，再填写版本标签运行；替换已有 Release 时勾选 `replace_existing`。流程会检查新包与最新正式版（以及被替换版）的包名、签名一致，且内部版本号更高。签名从仓库 Secrets 的 `XNOTES_KEYSTORE_BASE64`、`XNOTES_STORE_PASSWORD` 读取；更换签名会影响覆盖安装。

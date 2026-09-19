@@ -113,7 +113,7 @@ private fun SegIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, desc:
     IconButton(onClick = onClick) {
         Icon(
             icon,
-            contentDescription = localizedText(desc),
+            contentDescription = desc,
             tint = if (selected) palette.accent.toComposeColor() else palette.textDim.toComposeColor(),
             modifier = Modifier.size(20.dp),
         )
@@ -321,7 +321,7 @@ private fun PageSelectionBar(
 @Composable
 private fun BarAction(icon: ImageVector, desc: String, onClick: () -> Unit) {
     IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
-        Icon(icon, localizedText(desc), tint = LocalPalette.current.textDim.toComposeColor(), modifier = Modifier.size(19.dp))
+        Icon(icon, desc, tint = LocalPalette.current.textDim.toComposeColor(), modifier = Modifier.size(19.dp))
     }
 }
 

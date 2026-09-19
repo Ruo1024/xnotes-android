@@ -800,7 +800,7 @@ internal fun SliderRow(
 ) {
     Column {
         Text(
-            "${localizedText(label)}  ${"%.0f".format(value)}",
+            "$label  ${"%.0f".format(value)}",
             color = (if (enabled) LocalPalette.current.text else LocalPalette.current.textDim).toComposeColor(),
             fontFamily = FontFamily.Monospace,
             fontSize = 12.sp,
@@ -838,7 +838,7 @@ private fun KindChip(icon: ImageVector, label: String, selected: Boolean, onClic
     ) {
         Icon(
             icon,
-            contentDescription = localizedText(label),
+            contentDescription = label,
             tint = if (selected) palette.accent.toComposeColor() else palette.text.toComposeColor(),
             modifier = Modifier.size(20.dp),
         )

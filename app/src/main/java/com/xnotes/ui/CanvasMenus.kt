@@ -259,7 +259,7 @@ private fun ActionIcon(icon: ImageVector, desc: String, enabled: Boolean = true,
     val palette = LocalPalette.current
     val tint = palette.text.toComposeColor().let { if (enabled) it else it.copy(alpha = 0.35f) }
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(46.dp)) {
-        Icon(icon, contentDescription = localizedText(desc), tint = tint, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 

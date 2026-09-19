@@ -572,7 +572,7 @@ private fun Command(icon: ImageVector, label: String, selected: Boolean = false,
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = localizedText(label), tint = palette.accent.toComposeColor(), modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = label, tint = palette.accent.toComposeColor(), modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(16.dp))
         Text(
             label,

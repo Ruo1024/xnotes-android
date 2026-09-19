@@ -221,7 +221,7 @@ private fun BarIcon(
         else -> palette.textDim.toComposeColor()
     }
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp)) {
-        Icon(icon, contentDescription = localizedText(contentDescription), tint = tint, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 

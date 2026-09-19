@@ -362,7 +362,7 @@ internal fun ToolbarIcon(
                 .background(if (filled) palette.accent.toComposeColor() else androidx.compose.ui.graphics.Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = localizedText(contentDescription), tint = tint, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
         }
     }
 }
