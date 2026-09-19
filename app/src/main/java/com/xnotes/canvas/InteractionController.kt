@@ -2759,7 +2759,18 @@ class InteractionController(
      * new document at (or believing it is at) its bottom, spuriously arming add-page on first scroll.
      */
     fun resetGestureState() {
-        releaseStylusButtons()
+        // The editor has already replaced the document and cleared its history.
+        // Discard old gesture bookkeeping; focus-loss cleanup would commit old erases.
+        stylusButtons.reset()
+        contactButtonTool = null
+        stylusContactActive = false
+        waitForStylusLift = spenThirdPartyButtons
+        hoverActionTool = null
+        eraseRemovals.clear()
+        eraseSnapshots.clear()
+        eraserCursor = null
+        liveStroke = null
+        strokePageIndex = null
         stopFling()
         state.flipOffsetX = 0.0
         clearOverscroll()

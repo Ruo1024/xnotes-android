@@ -297,9 +297,23 @@ class InfiniteInteraction(
 
     /** Drop any in-flight gesture and stop a glide, so a document swap cannot bleed into the next. */
     fun resetGestureState() {
-        releaseStylusButtons()
+        // Unlike focus loss, the old document is gone: never push its erase command
+        // through callbacks now owned by the newly installed document.
+        stylusButtons.reset()
+        contactButtonTool = null
+        stylusContactActive = false
+        waitForStylusLift = spenThirdPartyButtons
+        hoverActionTool = null
+        eraseSession = null
+        onEraserCursor(null, 0.0)
         stopFling()
         cancelLongPress()
+        cancelDwell()
+        dwellEligible = false
+        bandRect = null
+        lassoPoints.clear()
+        pendingShape = null
+        onPendingShape(null)
         longPressPrevTool = null
         mode = CanvasPointerMode.IDLE
         panVel = Pt.ZERO
@@ -307,7 +321,6 @@ class InfiniteInteraction(
         liftedTransform = false
         onWetStroke(null)
         onLiftSelection(emptyList(), LiftTransform.NONE)
-        stylusButtons.reset()
     }
 
     // --- pointer handling ---
