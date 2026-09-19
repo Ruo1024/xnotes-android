@@ -4,7 +4,7 @@ gradle.beforeProject { project ->
         project.extensions.getByName('androidComponents').finalizeDsl { android ->
             android.defaultConfig.applicationId = 'com.xnotes.debug'
             // Fork build number: increases even when replacing the same release tag.
-            android.defaultConfig.versionCode = 55
+            android.defaultConfig.versionCode = 56
             android.defaultConfig.versionName = System.getenv('RELEASE_TAG').substring(1)
         }
     }

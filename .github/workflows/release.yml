@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag (v0.8.17-zh.1)
+        description: Release tag (v0.8.18-zh.1)
         required: true
-        default: v0.8.17-zh.1
+        default: v0.8.18-zh.1
       replace_existing:
         description: Replace the existing release assets and move its tag after verification
         type: boolean
@@ -99,7 +99,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk" | tee release-output/signing.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" > release-output/package.txt
           grep -q "package: name='com.xnotes.debug'" release-output/package.txt
-          grep -q "versionCode='55'" release-output/package.txt
+          grep -q "versionCode='56'" release-output/package.txt
           grep -q 'certificate SHA-256 digest: f6801d8c953410e2650f34818ed61f95b947e090b010ad29d72ac95cd16425b5' release-output/signing.txt
           if [ "$REPLACE_EXISTING" = true ]; then
             old_apk="release-backup/xnotes-${RELEASE_TAG#v}.apk"
@@ -110,7 +110,7 @@ jobs:
             "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$old_apk" > "$RUNNER_TEMP/old-package.txt"
             grep -q "package: name='com.xnotes.debug'" "$RUNNER_TEMP/old-package.txt"
             old_code=$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" "$RUNNER_TEMP/old-package.txt")
-            test 55 -gt "$old_code"
+            test 56 -gt "$old_code"
           fi
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
           (cd release-output && sha256sum *.apk > SHA256SUMS)
@@ -132,7 +132,7 @@ jobs:
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
               -f sha="$GITHUB_SHA" -F force=true
             gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --title "xnotes 简体中文版 ${RELEASE_TAG#v}（修复版，构建 55）" \
+              --title "xnotes 简体中文版 ${RELEASE_TAG#v}（修复版，构建 56）" \
               --notes-file .github/release-notes.md --latest
           else
             gh release create "$RELEASE_TAG" release-output/* \
