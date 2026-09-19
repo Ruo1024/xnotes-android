@@ -58,7 +58,7 @@ class StylusContactIntegrationTest {
             viewportW = 800; viewportH = 1000; relayout()
         }
         val controller = InteractionController(state, History(), FakeTextMeasurer(), {}).apply {
-            tool = Tool.PEN; spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.SELECT
+            setTool(Tool.PEN); spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.SELECT
         }
         fun event(action: Int, x: Double, y: Double, eraser: Boolean) {
             val content = state.fromPageSpace(0, Pt(x, y))
@@ -206,7 +206,7 @@ class StylusContactIntegrationTest {
         }
         val history = History()
         val controller = InteractionController(state, history, FakeTextMeasurer(), {}).apply {
-            tool = Tool.PEN; spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.ERASER
+            setTool(Tool.PEN); spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.ERASER
         }
         fun event(action: Int, x: Double, y: Double, eraser: Boolean = false) {
             val point = state.contentToViewport(state.fromPageSpace(0, Pt(x, y)))
@@ -275,7 +275,7 @@ class StylusContactIntegrationTest {
         }
         val history = History()
         val controller = InteractionController(state, history, FakeTextMeasurer(), {}).apply {
-            tool = Tool.PEN; spenThirdPartyButtons = true
+            setTool(Tool.PEN); spenThirdPartyButtons = true
         }
         val point = state.contentToViewport(state.fromPageSpace(0, Pt(100.0, 100.0)))
         send(controller::onTouch, MotionEvent.ACTION_DOWN, point.x, point.y, true)
