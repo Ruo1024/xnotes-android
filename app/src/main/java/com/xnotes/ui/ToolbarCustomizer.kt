@@ -1,5 +1,6 @@
 package com.xnotes.ui
 
+import androidx.compose.material3.Text
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +36,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,7 +103,7 @@ fun ToolbarCustomizerBody(
             ) {
                 if (section.entries.isEmpty()) {
                     Text(
-                        "drop here",
+                        stringResource(R.string.drop_here),
                         color = (if (dragging && dropTarget == sec to 0) palette.accent else palette.textDim).toComposeColor(),
                         fontSize = 11.sp,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -224,7 +226,7 @@ private fun SectionCard(
                 )
                 IconButton(onClick = onDelete, enabled = canDelete, modifier = Modifier.size(26.dp)) {
                     Icon(
-                        XnotesIcons.close, "Delete section",
+                        XnotesIcons.close, stringResource(R.string.delete_section),
                         tint = (if (canDelete) palette.textDim else palette.border).toComposeColor(),
                         modifier = Modifier.size(14.dp),
                     )
@@ -335,7 +337,7 @@ private fun ChipFace(item: ToolbarItem, visible: Boolean, modifier: Modifier = M
     ) {
         Icon(itemIcon(item), null, tint = palette.textDim.toComposeColor(), modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(4.dp))
-        Text(item.label, color = palette.text.toComposeColor(), fontSize = 12.sp)
+        Text(stringResource(item.labelRes), color = palette.text.toComposeColor(), fontSize = 12.sp)
     }
 }
 
@@ -354,7 +356,7 @@ fun ToolbarDragGhost(item: ToolbarItem) {
     ) {
         Icon(itemIcon(item), null, tint = palette.accent.toComposeColor(), modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(4.dp))
-        Text(item.label, color = palette.accent.toComposeColor(), fontSize = 12.sp)
+        Text(stringResource(item.labelRes), color = palette.accent.toComposeColor(), fontSize = 12.sp)
     }
 }
 
@@ -384,7 +386,7 @@ fun SectionCardGhost(section: ToolbarSection, widthPx: Float) {
         }
         if (section.entries.isEmpty()) {
             Text(
-                "drop here", color = palette.textDim.toComposeColor(), fontSize = 11.sp,
+                stringResource(R.string.drop_here), color = palette.textDim.toComposeColor(), fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
             )
         } else {
@@ -409,9 +411,9 @@ private fun AddSectionChip(onClick: () -> Unit) {
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(XnotesIcons.plus, localizedText("Add section"), tint = palette.accent.toComposeColor(), modifier = Modifier.size(14.dp))
+        Icon(XnotesIcons.plus, stringResource(R.string.add_section), tint = palette.accent.toComposeColor(), modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(4.dp))
-        Text("Add section", color = palette.accent.toComposeColor(), fontSize = 12.sp)
+        Text(stringResource(R.string.add_section), color = palette.accent.toComposeColor(), fontSize = 12.sp)
     }
 }
 

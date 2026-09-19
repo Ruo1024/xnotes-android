@@ -1,5 +1,6 @@
 package com.xnotes.ui
 
+import androidx.compose.material3.Text
 import android.os.Debug
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box

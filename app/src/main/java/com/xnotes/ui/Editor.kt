@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.xnotes.R
 import com.xnotes.canvas.CanvasState
 import com.xnotes.canvas.CanvasView
 import com.xnotes.canvas.EditingField
@@ -74,7 +75,7 @@ import com.xnotes.format.XNoteFormatException
 import com.xnotes.platform.AndroidImageCodec
 import com.xnotes.platform.AndroidSurfaceFactory
 import com.xnotes.platform.AndroidTextMeasurer
-import com.xnotes.settings.ExplorerSortKey
+import com.xnotes.settings.ExplorerView
 import com.xnotes.settings.LiveSettings
 import com.xnotes.settings.Preferences
 import com.xnotes.settings.Settings
@@ -126,15 +127,39 @@ data class BrowseEntry(
     val color: Rgba? = null,
 )
 
-/** Whether a pending import came from the PDF picker or the system "Open…" file picker. */
-enum class ImportKind { PDF, OPEN }
+/** Every note and canvas under a folder, and the names of the folders they sit in, by document id. */
+class TreeFiles(val files: List<BrowseEntry>, val folderNames: Map<String, String>)
 
-/** A picked file awaiting a name before it's saved into the explorer's current folder. */
-data class PendingImport(val kind: ImportKind, val defaultName: String, val uri: String)
+/**
+ * A deleted note, canvas or folder waiting in Trash. [entry] is the item where it now lies; [path] names the
+ * folders it was deleted from, below the top folder, so it can go back even on another device.
+ */
+class TrashItem(val wrapperDocId: String, val entry: BrowseEntry, val path: List<String>, val deleted: Long)
+
+/** A document from Recent as the explorer shows it: the file now, when it was opened and the folder it sits in. */
+class RecentEntry(val entry: BrowseEntry, val opened: Long, val where: String?)
+
+/** A picked PDF awaiting a name before it's imported into the explorer's current folder. */
+data class PendingImport(val defaultName: String, val uri: String)
 
 /** Per-folder colour sidecar: a hidden ".xnote" dir holding "colors.json" (item name -> hex). */
 private const val SIDECAR_DIR = ".xnote"
 private const val SIDECAR_FILE = "colors.json"
+/** In the root folder's sidecar only: the names given to colour codes, so they sync with the notes. */
+private const val COLOR_NAMES_FILE = "color-names.json"
+
+/** Inside the top folder's sidecar: deleted items, each in a folder of its own with a [TRASH_INFO] beside it. */
+private const val TRASH_DIR = "trash"
+private const val TRASH_INFO = "trash.json"
+
+/** How long after a tap its settings change is written, clear of the 150 ms animations it starts. */
+private const val SETTINGS_SAVE_DELAY_MS = 400L
+
+/** How many opened documents Recent remembers. */
+private const val RECENT_MAX = 40
+
+/** Recent, shared by both panes of a split so a note opened in either shows up; null until first read from settings. */
+private val sharedRecents = androidx.compose.runtime.mutableStateOf<List<com.xnotes.settings.RecentDoc>?>(null)
 
 /**
  * Which pane of a split view an editor drives. [PRIMARY] is the app's one editor in the ordinary
@@ -292,6 +317,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     }
     /** App-tracked creation times for explorer ordering (SAF exposes only last-modified). */
     private val createdStore = com.xnotes.platform.CreationTimeStore(com.xnotes.platform.JsonStore.createdTimes(appContext))
+    private val docMeta = com.xnotes.platform.DocMetaStore(com.xnotes.platform.JsonStore.docMeta(appContext))
     /** A single lowest-priority background thread renders explorer thumbnails one at a time, so a
      *  folder of many notes fills in gradually without ever competing with the UI/render threads. */
     private val thumbDispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -383,7 +409,19 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     /** Granted explorer root (a SAF tree URI), or null until the user picks a folder. */
     var browseRoot by mutableStateOf(settings.browseRoot)
         private set
-    /** A picked PDF/.xnote awaiting a name before it's saved into the explorer; drives the inline name field. */
+    /** Folders pinned to the home sidebar on this device, in pin order. */
+    var pinnedFolders by mutableStateOf(settings.pinnedFolders)
+        private set
+    /** Names given to colour codes (only named colours reach the sidebar), read from the root's sidecar. */
+    var colorNames by mutableStateOf<Map<Rgba, String>>(emptyMap())
+        private set
+    /** The view every folder shares, and the fallback for folders without one of their own. */
+    var explorerView by mutableStateOf(settings.explorerView)
+        private set
+    /** Views set in a single folder, by folder key; consulted only while views are per folder. */
+    var folderViews by mutableStateOf(settings.folderViews)
+        private set
+    /** A picked PDF awaiting a name before it's imported into the explorer; drives the inline name field. */
     var pendingImport by mutableStateOf<PendingImport?>(null)
         private set
     /** True while a committed import is being written off-thread; drives the "Importing…" dialog. */
@@ -424,6 +462,22 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     var shapeConfig by mutableStateOf(ShapeConfig())
         private set
     var message by mutableStateOf<String?>(null)
+    /** A button the next [message] carries, such as Undo, with what it does. */
+    var messageAction by mutableStateOf<Pair<String, () -> Unit>?>(null)
+
+    /** Show [text], with [action] as a button on it. */
+    fun say(text: String, action: Pair<String, () -> Unit>? = null) {
+        messageAction = action
+        message = text
+    }
+
+    /** How many items wait in Trash in the current folder tree. */
+    var trashCount by mutableStateOf(0)
+        private set
+
+    /** Bumped when files change behind the explorer's back (an undone trash, say), so it lists again. */
+    var treeVersion by mutableStateOf(0)
+        private set
 
     /** Bumped on every preferences change so open panes refresh (e.g. after an .scm import). */
     var prefsVersion by mutableStateOf(0)
@@ -513,7 +567,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** Open a fresh, unsaved infinite canvas on top of backstage. */
     fun newCanvas() {
-        val doc = com.xnotes.core.infinite.InfiniteDocument()
+        val doc = com.xnotes.core.infinite.InfiniteDocument(created = System.currentTimeMillis())
         settings.newCanvasBackground?.let { doc.background = it }
         openCanvasDocument(doc, uri = null, displayName = null)
     }
@@ -527,10 +581,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             runCatching {
                 appContext.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use {
                     canvasCodec.read(it, imageDir)
-                }
+                }?.also { it.created = settleCreated(uri, it.created) }
             }.getOrNull()
         } ?: return false
         openCanvasDocument(doc, uri, name)
+        rememberOpened(uri, name)
         return true
     }
 
@@ -976,7 +1031,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val ok = bmp != null && putBitmapOnClipboard(bmp, "xnotes capture")
         controller.clearScreenshot()
         controller.switchBackAfterScreenshot() // return to the previous pen, like the eraser
-        message = if (ok) "Image copied. Paste it anywhere." else "Couldn’t copy the image."
+        message = if (ok) appContext.getString(R.string.image_copied) else appContext.getString(R.string.err_copy_image)
     }
 
     /** Render a content-space rectangle (whatever it overlaps: pages, backgrounds, ink, the gap)
@@ -1037,13 +1092,13 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     override fun pasteClipboardImageAt(content: com.xnotes.core.geometry.Pt) {
         val uri = clipboardImageUri() ?: run {
             clipboardSvgBytes()?.let { insertImageAt(it, content) }
-                ?: run { message = "The clipboard has no image to paste." }
+                ?: run { message = appContext.getString(R.string.err_clipboard_no_image) }
             return
         }
         runCatching { appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
             .getOrNull()
             ?.let { insertImageAt(it, content) }
-            ?: run { message = "The clipboard has no image to paste." }
+            ?: run { message = appContext.getString(R.string.err_clipboard_no_image) }
     }
 
     /** SVG markup sitting on the clipboard as plain text (copied source), as insertable bytes. */
@@ -1361,7 +1416,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val size = file?.let { imageCodec.probeFile(it.path) }
         if (file == null || size == null || size.width <= 0 || size.height <= 0) {
             file?.delete()
-            message = "Could not read the image."
+            message = appContext.getString(R.string.err_read_image)
             return
         }
         val index = (atContent?.let { state.pageIndexAtContent(it) } ?: state.currentPageIndex())
@@ -1402,7 +1457,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val size = file?.let { imageCodec.probeFile(it.path) }
         if (file == null || size == null || size.width <= 0 || size.height <= 0) {
             file?.delete()
-            message = "Could not read the image."
+            message = appContext.getString(R.string.err_read_image)
             return
         }
         refreshStickers()
@@ -1417,7 +1472,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     fun insertSticker(file: java.io.File) {
         val bytes = runCatching { file.takeIf { it.isFile }?.readBytes() }.getOrNull()
         if (bytes == null) {
-            message = "Could not read the sticker."
+            message = appContext.getString(R.string.err_read_sticker)
             refreshStickers()
             return
         }
@@ -1429,13 +1484,13 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val uri = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
         if (uri == null) {
             clipboardSvgBytes()?.let { insertImage(it) }
-                ?: run { message = "The clipboard has no image to paste." }
+                ?: run { message = appContext.getString(R.string.err_clipboard_no_image) }
             return
         }
         runCatching { appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
             .getOrNull()
             ?.let { insertImage(it) }
-            ?: run { message = "The clipboard has no image to paste." }
+            ?: run { message = appContext.getString(R.string.err_clipboard_no_image) }
     }
 
     /**
@@ -1658,6 +1713,13 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         settingsRepo.save(settings)
         prefsVersion++
         view.requestRender()
+    }
+
+    /** Apply preferences only the home screen reads, without the canvas refresh [applyPreferences] does. */
+    fun applyHomePreferences(p: Preferences) {
+        settings = settings.copy(prefs = p)
+        saveSettingsSoon()
+        prefsVersion++
     }
 
     /** Apply an edited toolbar layout live and persist (used by the toolbar customiser). */
@@ -1909,7 +1971,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     /** A blank document at the user's default page size, custom dimensions included. */
     private fun blankDocument(): Document {
         val (w, h) = settings.prefs.newPagePixels()
-        return Document.blankPixels(Document.DEFAULT_NEW_PAGES, w, h)
+        return Document.blankPixels(Document.DEFAULT_NEW_PAGES, w, h).also { it.created = System.currentTimeMillis() }
     }
 
     /** Stamp the saved new-note defaults (page style + flow config) onto a fresh [doc]. */
@@ -2192,6 +2254,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                 fileBytes = fileSizeOf(uri)
                 appContext.contentResolver.openInputStream(android.net.Uri.parse(uri))
                     ?.use { codec.read(it, pdfDir, imageDir, timing) }
+                    ?.also { it.created = settleCreated(uri, it.created) }
             }
             readMs = (System.nanoTime() - readStart) / 1_000_000
             state.lastOpenInflateMs = timing.inflateMs
@@ -2203,7 +2266,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                 "open read ${readMs}ms = inflate ${timing.inflateMs} + parse ${timing.parseMs}" +
                     " + assets ${timing.assetsMs} + compact ${timing.compactMs}, $fileBytes bytes",
             )
-            if (doc == null) { message = "Could not open that note."; return }
+            if (doc == null) { message = appContext.getString(R.string.err_open_that_note); return }
             if (openCancelled.get()) { doc.pdfFile?.delete(); deleteImageTemps(doc); return } // tapped Cancel mid-read; stay put
             doc.path = uri
             doc.displayName = name
@@ -2213,10 +2276,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             state.lastSaveBytes = fileBytes // the on-disk size, until the first autosave rewrites it
             maybeBindAutosave(uri) // resume autosaving if this note lives in the granted folder
             noteOpen = true // push the editor on top of backstage (only on a successful open)
+            rememberOpened(uri, name)
         } catch (e: XNoteFormatException) {
-            message = e.message ?: "Not an xnotes document."
+            message = appContext.getString(R.string.err_not_xnotes)
         } catch (e: Exception) {
-            message = "Could not open the note."
+            message = appContext.getString(R.string.err_open_note)
         } finally {
             // Record the timings for the debug overlay, so a genuinely fast open (read < 160ms, no
             // spinner) can be told apart from a bug where the spinner is wrongly skipped.
@@ -2240,7 +2304,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             invalidateThumb(uri) // content changed; re-render its tile next time it's shown
         } catch (e: Throwable) {
             // Throwable, not Exception: an OutOfMemoryError mid-encode must surface a message, not crash.
-            message = "Could not save the note."
+            message = appContext.getString(R.string.err_save_note)
         }
     }
 
@@ -2283,7 +2347,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                 invalidateThumb(uri)
             } else {
                 if (wasDirty && state.document === doc) { doc.dirty = true; dirty = true }
-                message = "Could not save the note."
+                message = appContext.getString(R.string.err_save_note)
             }
             state.lastSaveTotalMs = msSince(startNs)
             onDone(ok)
@@ -2321,8 +2385,38 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val page = doc.pages.firstOrNull() ?: return null
         val side = sidePx.coerceAtLeast(1)
         val cover = exportFootprint(doc, page)
-        val scale = side.toDouble() / cover.w
-        val surface = com.xnotes.platform.AndroidRasterSurface.create(side, side)
+        val turned = rotation == 90 || rotation == 270
+        val shownW = if (turned) cover.h else cover.w
+        val shownH = if (turned) cover.w else cover.h
+        // An upright page shows its top across the whole tile.
+        if (!turned && shownW <= shownH) return paintDocPage(doc, 0, side, side, side.toDouble() / cover.w, rotation, filter)
+        // Otherwise the page as shown spans the tile's width: centred top to bottom when it's wider than tall.
+        val whole = renderDocPage(doc, 0, (side * shownH / shownW).roundToInt().coerceAtLeast(1), filter, rotation) ?: return null
+        val tile = com.xnotes.platform.AndroidRasterSurface.create(side, side)
+        tile.fill(page.resolvedPageColor(doc, state.pageColorOverride) ?: state.palette.paper)
+        android.graphics.Canvas(tile.bitmap).drawBitmap(whole, 0f, if (shownW > shownH) (side - whole.height) / 2f else 0f, null)
+        whole.recycle()
+        return tile.bitmap
+    }
+
+    /** Page [index] whole, [heightPx] tall once turned by [rotation], at the page's own shape. */
+    private fun renderDocPage(doc: Document, index: Int, heightPx: Int, filter: com.xnotes.canvas.PdfPageFilter, rotation: Int = 0): android.graphics.Bitmap? {
+        val page = doc.pages.getOrNull(index) ?: return null
+        val cover = exportFootprint(doc, page)
+        val turned = rotation == 90 || rotation == 270
+        val scale = heightPx.coerceAtLeast(1) / (if (turned) cover.w else cover.h)
+        val w = (cover.w * scale).roundToInt().coerceAtLeast(1)
+        val h = (cover.h * scale).roundToInt().coerceAtLeast(1)
+        return paintDocPage(doc, index, w, h, scale, rotation, filter)
+    }
+
+    /** Page [index] painted from its top-left corner at [scale] onto a [w]×[h] surface, then turned by [rotation]. */
+    private fun paintDocPage(
+        doc: Document, index: Int, w: Int, h: Int, scale: Double, rotation: Int, filter: com.xnotes.canvas.PdfPageFilter,
+    ): android.graphics.Bitmap? {
+        val page = doc.pages.getOrNull(index) ?: return null
+        val cover = exportFootprint(doc, page)
+        val surface = com.xnotes.platform.AndroidRasterSurface.create(w, h)
         // Resolve the paper colour against this note's own document/page style (not the open note's).
         surface.fill(page.resolvedPageColor(doc, state.pageColorOverride) ?: state.palette.paper)
         val r = surface.renderer()
@@ -2348,7 +2442,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         if (!doc.flow.isEmpty) {
             val frame = themedFlowLayout(doc.flow)
                 .layout(doc.flow, doc.pages.map { PageBox(it.width, it.height) }, doc.dpi)
-            FlowPainter.paintPage(r, frame, 0, Rect(0.0, 0.0, page.width, page.height))
+            FlowPainter.paintPage(r, frame, index, Rect(0.0, 0.0, page.width, page.height))
         }
         for (item in itemsSnapshot(page)) item.paint(r)
         val bmp = surface.bitmap
@@ -2366,19 +2460,27 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     private fun renderCanvasThumbnailSquare(
         doc: com.xnotes.core.infinite.InfiniteDocument,
         sidePx: Int,
+    ): android.graphics.Bitmap? = renderCanvasThumbnail(doc, sidePx, sidePx)
+
+    /** A canvas's content framed with a little margin in a [wPx]×[hPx] tile. */
+    private fun renderCanvasThumbnail(
+        doc: com.xnotes.core.infinite.InfiniteDocument,
+        wPx: Int,
+        hPx: Int,
     ): android.graphics.Bitmap? {
-        val side = sidePx.coerceAtLeast(1)
-        val surface = com.xnotes.platform.AndroidRasterSurface.create(side, side)
+        val w = wPx.coerceAtLeast(1)
+        val h = hPx.coerceAtLeast(1)
+        val surface = com.xnotes.platform.AndroidRasterSurface.create(w, h)
         surface.fill(doc.background.paperColor ?: state.palette.paper)
         val bounds = doc.contentBounds()
         if (bounds != null && bounds.w > 0.0 && bounds.h > 0.0) {
             val r = surface.renderer()
-            val margin = side * 0.06
-            val scale = ((side - 2 * margin) / maxOf(bounds.w, bounds.h)).coerceAtMost(1.0)
-            // Centre the content in the square, whichever way round it is.
+            val margin = minOf(w, h) * 0.06
+            val scale = minOf((w - 2 * margin) / bounds.w, (h - 2 * margin) / bounds.h).coerceAtMost(1.0)
+            // Centre the content in the tile, whichever way round it is.
             r.translate(
-                margin + (side - 2 * margin - bounds.w * scale) / 2.0,
-                margin + (side - 2 * margin - bounds.h * scale) / 2.0,
+                margin + (w - 2 * margin - bounds.w * scale) / 2.0,
+                margin + (h - 2 * margin - bounds.h * scale) / 2.0,
             )
             r.scale(scale, scale)
             r.translate(-bounds.left, -bounds.top)
@@ -2400,6 +2502,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                         canvasCodec.read(it, imageDir)
                     }
                 }.getOrNull() ?: return@withContext null
+                doc.created?.let { createdStore.put(documentKey(uri), it) }
                 try {
                     renderCanvasThumbnailSquare(doc, tilePx)?.also { thumbCache.store(uri, it) }
                         ?: return@withContext null
@@ -2424,6 +2527,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     /** The square side (px) explorer tiles render at — fixed so rotation/column changes don't re-render. */
     private val tilePx = 600
 
+    /** The height (px) whole-page thumbnails render at. */
+    private val pageThumbPx = 600
+
     /** An already-loaded tile for [uri] at its current content, to seed the grid instantly. */
     fun cachedNoteTile(uri: String): ImageBitmap? = synchronized(noteThumbs) { noteThumbs.get(uri) }
 
@@ -2444,6 +2550,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                 val doc = runCatching {
                     appContext.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { codec.read(it, pdfDir, imageDir) }
                 }.getOrNull() ?: return@withContext null
+                doc.created?.let { createdStore.put(documentKey(uri), it) }
                 try {
                     val vs = viewSettingsFor(uri)
                     renderDocThumbnailSquare(doc, tilePx, pdfPageFilterFor(vs), vs.rotation)?.also { thumbCache.store(uri, it) } ?: return@withContext null
@@ -2455,6 +2562,74 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             val img = bmp.asImageBitmap()
             synchronized(noteThumbs) { noteThumbs.put(uri, img) }
             img
+        }
+    }
+
+    /** The key a document's whole-page thumbnail is cached under, beside its square tile's. */
+    private fun pageThumbKey(uri: String): String = "$uri#page"
+
+    /** An already-rendered whole-page thumbnail for [uri], to seed a tile instantly. */
+    fun cachedPageThumb(uri: String): ImageBitmap? = synchronized(noteThumbs) { noteThumbs.get(pageThumbKey(uri)) }
+
+    /**
+     * The first page whole, for Gallery and the "Whole page" tiles: [pageThumbPx] tall at the page's own shape,
+     * or for a canvas its content in a landscape frame of the same size. Cached like the square tiles, and dropped
+     * with them when the document changes.
+     */
+    suspend fun pageThumbnail(uri: String, name: String): ImageBitmap? {
+        val key = pageThumbKey(uri)
+        synchronized(noteThumbs) { noteThumbs.get(key)?.let { return it } }
+        return withContext(thumbDispatcher) {
+            delay(150)
+            if (!isActive) return@withContext null
+            synchronized(noteThumbs) { noteThumbs.get(key)?.let { return@withContext it } }
+            val bmp = thumbCache.load(key) ?: run {
+                val u = android.net.Uri.parse(uri)
+                val rendered = if (DocumentKind.ofName(name) == DocumentKind.CANVAS) {
+                    val doc = runCatching { appContext.contentResolver.openInputStream(u)?.use { canvasCodec.read(it, imageDir) } }.getOrNull()
+                        ?: return@withContext null
+                    try {
+                        renderCanvasThumbnail(doc, (pageThumbPx * 1.414).roundToInt(), pageThumbPx)
+                    } finally {
+                        deleteCanvasImageTemps(doc)
+                    }
+                } else {
+                    val doc = runCatching { appContext.contentResolver.openInputStream(u)?.use { codec.read(it, pdfDir, imageDir) } }.getOrNull()
+                        ?: return@withContext null
+                    try {
+                        val vs = viewSettingsFor(uri)
+                        renderDocPage(doc, 0, pageThumbPx, pdfPageFilterFor(vs), vs.rotation)
+                    } finally {
+                        doc.pdfFile?.delete()
+                        deleteImageTemps(doc)
+                    }
+                } ?: return@withContext null
+                rendered.also { thumbCache.store(key, it) }
+            }
+            val img = bmp.asImageBitmap()
+            synchronized(noteThumbs) { noteThumbs.put(key, img) }
+            img
+        }
+    }
+
+    /** The first [max] pages of the note at [uri], each [heightPx] tall, for a preview's page strip; empty for a canvas. */
+    suspend fun pageStrip(uri: String, name: String, max: Int, heightPx: Int): List<ImageBitmap> {
+        if (DocumentKind.ofName(name) == DocumentKind.CANVAS) return emptyList()
+        return withContext(thumbDispatcher) {
+            val doc = runCatching {
+                appContext.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { codec.read(it, pdfDir, imageDir) }
+            }.getOrNull() ?: return@withContext emptyList()
+            try {
+                val vs = viewSettingsFor(uri)
+                val filter = pdfPageFilterFor(vs)
+                (0 until minOf(max, doc.pages.size)).mapNotNull { i ->
+                    if (!isActive) return@withContext emptyList()
+                    runCatching { renderDocPage(doc, i, heightPx, filter, vs.rotation) }.getOrNull()?.asImageBitmap()
+                }
+            } finally {
+                doc.pdfFile?.delete()
+                deleteImageTemps(doc)
+            }
         }
     }
 
@@ -2473,8 +2648,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** Drop a note's cached tile (memory + disk) so it re-renders with fresh content next time it's shown. */
     private fun invalidateThumb(uri: String) {
-        synchronized(noteThumbs) { noteThumbs.remove(uri) }
+        synchronized(noteThumbs) { noteThumbs.remove(uri); noteThumbs.remove(pageThumbKey(uri)) }
         thumbCache.remove(uri)
+        thumbCache.remove(pageThumbKey(uri))
     }
 
     /**
@@ -2492,6 +2668,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             if (state.document !== doc) return@withContext // a new note was opened; don't cache stale pixels
             val bmp = runCatching { renderDocThumbnailSquare(doc, tilePx, filter, rotation) }.getOrNull() ?: return@withContext
             thumbCache.store(uri, bmp)
+            // The whole-page tile is drawn again the next time it's shown.
+            synchronized(noteThumbs) { noteThumbs.remove(pageThumbKey(uri)) }
+            thumbCache.remove(pageThumbKey(uri))
             val img = bmp.asImageBitmap()
             synchronized(noteThumbs) { noteThumbs.put(uri, img) }
         }
@@ -2511,6 +2690,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     // --- in-app file explorer (a user-granted SAF tree) ---
 
     fun updateBrowseRoot(treeUri: String) {
+        colorNames = emptyMap()
         browseRoot = treeUri
         settings = settings.copy(browseRoot = treeUri)
         settingsRepo.save(settings)
@@ -2523,17 +2703,155 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         updateBrowseRoot(com.xnotes.platform.AppStorageDocumentsProvider.treeUri(appContext).toString())
     }
 
-    /** The field the explorer grid sorts by, and whether that sort is reversed. */
-    val explorerSortKey: ExplorerSortKey get() = settings.explorerSortKey
-    val explorerSortDescending: Boolean get() = settings.explorerSortDescending
+    /** The pins under the current explorer root; the rest wait for their folder to be the root again. */
+    val sidebarPins: List<com.xnotes.settings.PinnedFolder>
+        get() = browseRoot?.let { root -> pinnedFolders.filter { isUnderTree(it.uri, root) } }.orEmpty()
 
-    /** Change the explorer sort, persist it, and re-sort every cached folder listing in place. */
-    fun setExplorerSort(key: ExplorerSortKey, descending: Boolean) {
-        if (settings.explorerSortKey == key && settings.explorerSortDescending == descending) return
-        settings = settings.copy(explorerSortKey = key, explorerSortDescending = descending)
+    fun isPinned(uri: String): Boolean {
+        val key = documentKey(uri)
+        return pinnedFolders.any { documentKey(it.uri) == key }
+    }
+
+    fun pinFolder(uri: String, name: String) {
+        if (!isPinned(uri)) savePins(pinnedFolders + com.xnotes.settings.PinnedFolder(uri, name))
+    }
+
+    fun unpinFolder(uri: String) {
+        val key = documentKey(uri)
+        savePins(pinnedFolders.filterNot { documentKey(it.uri) == key })
+    }
+
+    private fun savePins(pins: List<com.xnotes.settings.PinnedFolder>) {
+        if (pins == pinnedFolders) return
+        pinnedFolders = pins
+        settings = settings.copy(pinnedFolders = pins)
         settingsRepo.save(settings)
-        val cmp = explorerComparator(key, descending) { it.created }
-        browseCache.replaceAll { _, v -> v.sortedWith(cmp) }
+    }
+
+    /** The explorer's (doc id, name) stack from [treeUri]'s root down to [folderUri], or null when it can't be reached. IO. */
+    fun folderChain(treeUri: String, folderUri: String): List<Pair<String, String>>? {
+        val tree = android.net.Uri.parse(treeUri)
+        val rootId = browseRootDocId(treeUri)
+        val path = runCatching {
+            android.provider.DocumentsContract.findDocumentPath(appContext.contentResolver, android.net.Uri.parse(folderUri))?.path
+        }.getOrNull()
+        // A provider that can't walk the path still lets us jump straight in, one level under the root.
+        val ids = path?.indexOf(rootId)?.takeIf { it >= 0 }?.let { path.drop(it + 1) } ?: listOf(browseDocId(folderUri))
+        return ids.map { id ->
+            val name = queryDisplayName(android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id)) ?: return null
+            id to name
+        }
+    }
+
+    /** On wide screens, whether the home sidebar is collapsed to its icon rail. */
+    var backstageRail by mutableStateOf(settings.backstageRail)
+        private set
+
+    fun showRail(rail: Boolean) {
+        if (settings.backstageRail == rail) return
+        backstageRail = rail
+        settings = settings.copy(backstageRail = rail)
+        // Written after the fold settles: serializing every setting on the tap stalled the fold's first frame.
+        saveSettingsSoon()
+    }
+
+    private var settingsSaveJob: kotlinx.coroutines.Job? = null
+
+    /** Persist [settings] a moment after the tap that changed them; changes in between share the one write. */
+    private fun saveSettingsSoon() {
+        settingsSaveJob?.cancel()
+        settingsSaveJob = autosaveScope.launch { delay(SETTINGS_SAVE_DELAY_MS); settingsRepo.save(settings) }
+    }
+
+    /** Notes and canvases opened on this device, newest first. */
+    val recentDocs: List<com.xnotes.settings.RecentDoc>
+        get() = sharedRecents.value ?: settings.recentDocs.also { sharedRecents.value = it }
+
+    private fun setRecents(list: List<com.xnotes.settings.RecentDoc>) {
+        if (list == recentDocs) return
+        sharedRecents.value = list
+        settings = settings.copy(recentDocs = list)
+        saveSettingsSoon()
+    }
+
+    /** Put [uri] at the front of Recent. Main thread. */
+    private fun rememberOpened(uri: String, name: String?) {
+        val key = documentKey(uri)
+        val entry = com.xnotes.settings.RecentDoc(uri, name ?: uri.substringAfterLast('/'), System.currentTimeMillis())
+        setRecents((listOf(entry) + recentDocs.filterNot { documentKey(it.uri) == key }).take(RECENT_MAX))
+    }
+
+    /** Forget everything in Recent. */
+    fun clearRecents() = setRecents(emptyList())
+
+    /** Drop from Recent everything at or under [docUri], a deleted or trashed document. */
+    private fun dropRecentsWithin(docUri: String) {
+        val key = documentKey(docUri)
+        autosaveScope.launch { setRecents(recentDocs.filterNot { com.xnotes.core.util.DocKeys.within(documentKey(it.uri), key) }) }
+    }
+
+    /**
+     * What Recent shows under [treeUri]: each document as it is now, when it was opened and the folder it's in.
+     * A document that has gone is dropped from Recent. One query per document; IO.
+     */
+    fun recentEntries(treeUri: String): List<RecentEntry> {
+        val tree = android.net.Uri.parse(treeUri)
+        val colors = HashMap<String, Map<String, Rgba>>()
+        val folders = HashMap<String, String?>()
+        val gone = ArrayList<String>()
+        val out = recentDocs.filter { isUnderTree(it.uri, treeUri) }.mapNotNull { r ->
+            val docId = runCatching { android.provider.DocumentsContract.getDocumentId(android.net.Uri.parse(r.uri)) }.getOrNull() ?: return@mapNotNull null
+            val uri = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+            val stamp = stampOf(uri.toString()) ?: run { gone.add(r.uri); return@mapNotNull null }
+            val name = queryDisplayName(uri) ?: r.name
+            val parent = parentDocIdOf(uri.toString())
+            val color = parent?.let { p ->
+                colors.getOrPut(p) { findChildDocId(tree, p, SIDECAR_DIR, dir = true)?.let { readSidecarColors(tree, it) }.orEmpty() }[name]
+            }
+            val where = parent?.let { p -> folders.getOrPut(p) { queryDisplayName(android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, p)) } }
+            val entry = BrowseEntry(
+                name, uri.toString(), false, stamp.size.coerceAtLeast(0), stamp.modified.coerceAtLeast(0),
+                createdStore.get(documentKey(uri.toString())) ?: 0, parent.orEmpty(), color,
+            )
+            RecentEntry(entry, r.opened, where)
+        }
+        if (gone.isNotEmpty()) autosaveScope.launch { setRecents(recentDocs.filterNot { it.uri in gone }) }
+        return out.distinctBy { it.entry.documentUri }
+    }
+
+    /** The folder the explorer last showed, for Home to open on again. */
+    val lastFolder: String? get() = settings.lastFolder
+
+    fun setLastFolder(uri: String?) {
+        if (settings.lastFolder == uri) return
+        settings = settings.copy(lastFolder = uri)
+        saveSettingsSoon()
+    }
+
+    /** The key a folder's own view is kept under: the same identity [documentKey] gives its document uri. */
+    fun folderKey(treeUri: String, docId: String): String = "${android.net.Uri.parse(treeUri).authority}|$docId"
+
+    /** The view folder [key] shows in. */
+    fun viewFor(key: String?): ExplorerView =
+        if (settings.prefs.perFolderViews && key != null) folderViews[key] ?: explorerView else explorerView
+
+    /** Changes folder [key]'s view, or every folder's while views are shared; a null [view] resets it. */
+    fun setView(key: String?, view: ExplorerView?) {
+        if (settings.prefs.perFolderViews && key != null) {
+            folderViews = if (view == null) folderViews - key else folderViews + (key to view)
+            settings = settings.copy(folderViews = folderViews)
+        } else {
+            explorerView = view ?: ExplorerView()
+            settings = settings.copy(explorerView = explorerView)
+        }
+        saveSettingsSoon()
+    }
+
+    /** Sets the layout every folder without a view of its own opens in (Preferences' default layout). */
+    fun setDefaultLayout(layout: com.xnotes.settings.ExplorerLayout) {
+        explorerView = explorerView.copy(layout = layout)
+        settings = settings.copy(explorerView = explorerView)
+        saveSettingsSoon()
     }
 
     /** Forget the granted folder: release its SAF permission and clear the root. */
@@ -2546,6 +2864,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                 )
             }
         }
+        browseRoot?.let { old -> savePins(pinnedFolders.filterNot { isUnderTree(it.uri, old) }) }
+        colorNames = emptyMap()
         browseRoot = null
         settings = settings.copy(browseRoot = null)
         settingsRepo.save(settings)
@@ -2553,6 +2873,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         rootNameCache.clear()
         viewStates.clear() // forget every remembered per-note view for the released folder
         createdStore.clear() // and every tracked creation time — the keys only meant anything for that folder
+        docMeta.clear()
         synchronized(noteThumbs) { noteThumbs.evictAll() }
         thumbCache.prune(emptySet()) // every cached tile belonged to the released folder
     }
@@ -2645,7 +2966,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     fun createBlankCanvasFile(treeUri: String, parentDocId: String, rawName: String): String? {
         val name = uniqueDocumentName(treeUri, parentDocId, rawName, com.xnotes.core.util.DocumentKind.CANVAS)
         return createNoteFile(treeUri, parentDocId, name) {
-            val doc = com.xnotes.core.infinite.InfiniteDocument()
+            val doc = com.xnotes.core.infinite.InfiniteDocument(created = System.currentTimeMillis())
             settings.newCanvasBackground?.let { background -> doc.background = background }
             canvasCodec.write(doc, it)
         }
@@ -2664,18 +2985,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val source = com.xnotes.platform.PdfSource.create(appContext, pdfFile) ?: return null
         val doc = com.xnotes.platform.PdfImporter.import(source, state.document.dpi) // doc.pdfFile = pdfFile
         stampNewNoteDefaults(doc)
+        doc.created = System.currentTimeMillis()
         val name = uniqueDocumentName(treeUri, parentDocId, rawName, com.xnotes.core.util.DocumentKind.NOTE)
         val uri = createNoteFile(treeUri, parentDocId, name) { codec.write(doc, it) { importCancelled.get() } }
         source.close()
         return uri
-    }
-
-    /** Saves the picked `.xnote` at [file] into a new file under [parentDocId] (named after [rawName]);
-     *  returns its URI, or null. Streamed copy, so a big embedded PDF never loads into RAM. IO. */
-    fun createNoteFileFromFile(treeUri: String, parentDocId: String, rawName: String, file: java.io.File): String? {
-        runCatching { java.io.FileInputStream(file).use { codec.read(it) } }.getOrNull() ?: return null // validate it's a real .xnote (no PDF extraction)
-        val name = uniqueDocumentName(treeUri, parentDocId, rawName, com.xnotes.core.util.DocumentKind.NOTE)
-        return createNoteFile(treeUri, parentDocId, name) { out -> copyStream(java.io.FileInputStream(file), out) { importCancelled.get() } }
     }
 
     /** Streams [input] to a private temp file for a pending import; returns it, or null. The caller
@@ -2703,11 +3017,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         }
     }
 
-    /** A picked PDF/.xnote (referenced by content [uri]) now awaits a name before being saved into the
+    /** A picked PDF (referenced by content [uri]) now awaits a name before being saved into the
      *  folder. The file is deliberately **not** copied yet — that happens at [commitImport], under the
      *  import loader — so the name dialog can appear instantly instead of after a big copy. */
-    fun requestImport(kind: ImportKind, defaultName: String, uri: String) {
-        pendingImport = PendingImport(kind, defaultName, uri)
+    fun requestImport(defaultName: String, uri: String) {
+        pendingImport = PendingImport(defaultName, uri)
     }
 
     /** Discards a pending import (the user cancelled the name prompt). Nothing was copied yet. */
@@ -2724,10 +3038,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             appContext.contentResolver.openInputStream(android.net.Uri.parse(pending.uri))?.let { stageImport(it) }
         }.getOrNull()
         val uri = if (staged == null) null else try {
-            when (pending.kind) {
-                ImportKind.PDF -> createPdfNoteFile(treeUri, parentDocId, rawName, staged)
-                ImportKind.OPEN -> createNoteFileFromFile(treeUri, parentDocId, rawName, staged)
-            }
+            createPdfNoteFile(treeUri, parentDocId, rawName, staged)
         } finally {
             staged.delete()
         }
@@ -2768,13 +3079,49 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             if (autosaveUri == docUri) autosaveUri = resultUri
             title = state.document.title
         }
-        if (resultUri != docUri) {
-            // The id (hence the key) changed, but it's the same logical note — carry its created time
-            // across so a rename keeps its place in the grid instead of looking newly created.
-            createdStore.rekey(documentKey(docUri), documentKey(resultUri))
-            invalidateThumb(docUri)
-        }
+        onDocumentMoved(docUri, resultUri, newName)
         return true
+    }
+
+    /** Carry everything keyed by a document's identity across a rename or move; [newName] is set for a rename. */
+    private fun onDocumentMoved(oldUri: String, newUri: String, newName: String? = null) {
+        val from = documentKey(oldUri)
+        val to = documentKey(newUri)
+        if (oldUri != newUri) {
+            createdStore.rekeyTree(from, to)
+            viewStates.rekeyTree(from, to)
+            docMeta.rekeyTree(from, to)
+            invalidateThumb(oldUri)
+        }
+        val tree = browseRoot?.let { android.net.Uri.parse(it) } ?: return
+        fun follow(uri: String): String? {
+            val key = com.xnotes.core.util.DocKeys.moved(documentKey(uri), from, to) ?: return null
+            return android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, key.substringAfter('|')).toString()
+        }
+        autosaveScope.launch {
+            setRecents(recentDocs.map { r -> follow(r.uri)?.let { r.copy(uri = it) } ?: r })
+            val movedViews = folderViews.mapKeys { (k, _) -> com.xnotes.core.util.DocKeys.moved(k, from, to) ?: k }
+            if (movedViews != folderViews) {
+                folderViews = movedViews
+                settings = settings.copy(folderViews = movedViews)
+                saveSettingsSoon()
+            }
+            settings.lastFolder?.let { last -> follow(last)?.let { setLastFolder(it) } }
+            savePins(pinnedFolders.map { pin ->
+                val key = com.xnotes.core.util.DocKeys.moved(documentKey(pin.uri), from, to) ?: return@map pin
+                val uri = if (key == documentKey(pin.uri)) pin.uri
+                else android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, key.substringAfter('|')).toString()
+                com.xnotes.settings.PinnedFolder(uri, if (key == to && newName != null) newName else pin.name)
+            })
+        }
+    }
+
+    /** The created time for a file just read: its own when it records one, else the earliest clue; cached either way. IO. */
+    private fun settleCreated(uri: String, own: Long?): Long? {
+        val key = documentKey(uri)
+        val created = own ?: com.xnotes.core.util.DocKeys.inferCreated(createdStore.get(key), stampOf(uri)?.modified)
+        created?.let { createdStore.put(key, it) }
+        return created
     }
 
     /**
@@ -2816,11 +3163,6 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val target = android.net.Uri.parse(docUri)
         val delId = runCatching { android.provider.DocumentsContract.getDocumentId(target) }.getOrNull() ?: return
         val auth = target.authority
-        fun matches(uri: String): Boolean {
-            val u = android.net.Uri.parse(uri)
-            val rid = runCatching { android.provider.DocumentsContract.getDocumentId(u) }.getOrNull() ?: return false
-            return u.authority == auth && (rid == delId || rid.startsWith("$delId/"))
-        }
 
         // Forget the deleted note's remembered zoom/scroll — and every note's under a deleted folder.
         // View-state and creation-time keys are document identities ("$auth|$id", see documentKey), so
@@ -2830,10 +3172,37 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val keyPrefix = "$auth|$delId"
         viewStates.removeMatching { it == keyPrefix || it.startsWith("$keyPrefix/") }
 
-        // The note on screen was just deleted. Detach it at once — cancel autosave, drop its path,
-        // mark it clean — so nothing can rewrite the file or prompt to "save" it back, then drop the
-        // document itself for a fresh blank note on the main thread. The identity guard skips that
-        // reset if the user has meanwhile opened another note.
+        detachIfOpen(docUri)
+
+        // Forget the deleted item's tracked creation time (and the whole subtree's, for a folder),
+        // matched the same way as the view state, and drop its cached tile.
+        createdStore.removeMatching { it == keyPrefix || it.startsWith("$keyPrefix/") }
+        docMeta.removeMatching { com.xnotes.core.util.DocKeys.within(it, keyPrefix) }
+        invalidateThumb(docUri)
+        dropPinsWithin(docUri)
+        dropRecentsWithin(docUri)
+    }
+
+    /** Drop every pin at or under [docUri], a deleted or trashed folder. */
+    private fun dropPinsWithin(docUri: String) {
+        val key = documentKey(docUri)
+        autosaveScope.launch { savePins(pinnedFolders.filterNot { com.xnotes.core.util.DocKeys.within(documentKey(it.uri), key) }) }
+    }
+
+    /**
+     * The note on screen was just deleted or trashed. Detach it at once (cancel autosave, drop its path, mark it
+     * clean) so nothing can rewrite the file or prompt to "save" it back, then drop the document itself for a
+     * fresh blank note on the main thread. The identity guard skips that reset if another note opened meanwhile.
+     */
+    private fun detachIfOpen(docUri: String) {
+        val target = android.net.Uri.parse(docUri)
+        val delId = runCatching { android.provider.DocumentsContract.getDocumentId(target) }.getOrNull() ?: return
+        val auth = target.authority
+        fun matches(uri: String): Boolean {
+            val u = android.net.Uri.parse(uri)
+            val rid = runCatching { android.provider.DocumentsContract.getDocumentId(u) }.getOrNull() ?: return false
+            return u.authority == auth && (rid == delId || rid.startsWith("$delId/"))
+        }
         if (currentUri?.let { matches(it) } == true) {
             val deleted = state.document
             noteDebounceJob?.cancel()
@@ -2845,11 +3214,6 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             // (noteOpen == false) the detached buffer is left as-is so we don't pop into a blank editor.
             autosaveScope.launch { if (state.document === deleted && noteOpen) newNote() }
         }
-
-        // Forget the deleted item's tracked creation time (and the whole subtree's, for a folder),
-        // matched the same way as the view state, and drop its cached tile.
-        createdStore.removeMatching { it == keyPrefix || it.startsWith("$keyPrefix/") }
-        invalidateThumb(docUri)
     }
 
     /**
@@ -2858,10 +3222,15 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
      * rather than failing. (A folder can't be byte-streamed, so a folder name clash still fails.)
      * IO, call off-thread.
      */
-    fun copyDocumentInto(treeUri: String, sourceUri: String, targetParentDocId: String): Boolean = runCatching {
+    fun copyDocumentInto(treeUri: String, sourceUri: String, targetParentDocId: String): Boolean =
+        copyDocumentAs(treeUri, sourceUri, targetParentDocId) != null
+
+    /** [copyDocumentInto], returning the copy's name, or null when it failed. */
+    private fun copyDocumentAs(treeUri: String, sourceUri: String, targetParentDocId: String): String? = runCatching {
         val tree = android.net.Uri.parse(treeUri)
         val target = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, targetParentDocId)
         val src = android.net.Uri.parse(sourceUri)
+        val srcName = queryDisplayName(src) ?: return@runCatching null
         // Native copy first: it succeeds outright when there's no name clash (e.g. a different folder).
         // Wrapped on its own, because providers *throw* (rather than return null) on a same-name clash —
         // we must catch that here so it falls through to making a renamed duplicate below instead of
@@ -2869,27 +3238,62 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val direct = runCatching {
             android.provider.DocumentsContract.copyDocument(appContext.contentResolver, src, target)
         }.getOrNull()
-        if (direct != null) return@runCatching true
+        if (direct != null) return@runCatching queryDisplayName(direct) ?: srcName
         // The clash case (usually pasting into the same folder): duplicate under a free "… copy" name.
         val isDir = appContext.contentResolver.getType(src) == android.provider.DocumentsContract.Document.MIME_TYPE_DIR
-        val srcName = queryDisplayName(src) ?: return@runCatching false
         val taken = browseChildren(treeUri, targetParentDocId).mapTo(HashSet()) { it.name.lowercase() }
         val newName = uniqueCopyName(srcName, taken, splitExtension = !isDir)
         if (isDir) {
-            copyFolderAs(treeUri, src, target, newName)
+            newName.takeIf { copyFolderAs(treeUri, src, target, newName) }
         } else {
             val newUri = android.provider.DocumentsContract.createDocument(
                 appContext.contentResolver, target, "application/octet-stream", newName,
-            ) ?: return@runCatching false
+            ) ?: return@runCatching null
             val copied = runCatching {
                 appContext.contentResolver.openInputStream(src)?.use { input ->
                     appContext.contentResolver.openOutputStream(newUri, "wt")?.use { output -> input.copyTo(output); true } ?: false
                 } ?: false
             }.getOrDefault(false)
-            if (!copied) { runCatching { android.provider.DocumentsContract.deleteDocument(appContext.contentResolver, newUri) }; return@runCatching false }
-            true
+            if (!copied) { runCatching { android.provider.DocumentsContract.deleteDocument(appContext.contentResolver, newUri) }; return@runCatching null }
+            queryDisplayName(newUri) ?: newName
         }
-    }.getOrDefault(false)
+    }.getOrNull()
+
+    /** Copies [entries] into [targetParentDocId], colour codes included; returns how many were copied. IO. */
+    fun copyEntriesInto(treeUri: String, entries: List<BrowseEntry>, targetParentDocId: String): Int {
+        val colors = HashMap<String, Rgba?>()
+        var copied = 0
+        for (e in entries) {
+            val name = copyDocumentAs(treeUri, e.documentUri, targetParentDocId) ?: continue
+            copied++
+            e.color?.let { colors[name] = it }
+        }
+        setItemColors(treeUri, targetParentDocId, colors)
+        return copied
+    }
+
+    /**
+     * Moves [entries] into [targetParentDocId], each from the folder it was listed in, carrying their colour
+     * codes from the old folder's sidecar to the new one's. A folder never moves into itself. Returns how many
+     * ended up in the target. IO.
+     */
+    fun moveEntriesInto(treeUri: String, entries: List<BrowseEntry>, targetParentDocId: String): Int {
+        val carried = HashMap<String, Rgba?>()
+        val cleared = HashMap<String, HashMap<String, Rgba?>>()
+        var moved = 0
+        for (e in entries) {
+            if (e.parentDocId == targetParentDocId) { moved++; continue }
+            if (e.isDir && com.xnotes.core.util.DocKeys.within(targetParentDocId, browseDocId(e.documentUri))) continue
+            if (!moveDocumentInto(treeUri, e.documentUri, e.parentDocId, targetParentDocId)) continue
+            moved++
+            val c = e.color ?: continue
+            carried[e.name] = c
+            cleared.getOrPut(e.parentDocId) { HashMap() }[e.name] = null
+        }
+        for ((parent, changes) in cleared) setItemColors(treeUri, parent, changes)
+        setItemColors(treeUri, targetParentDocId, carried)
+        return moved
+    }
 
     /**
      * Duplicates folder [srcFolder] into [targetParent] under [newName]. The new folder starts empty, so
@@ -2954,6 +3358,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             state.document.path = newUri.toString()
             if (autosaveUri == sourceUri) autosaveUri = newUri.toString()
         }
+        newUri?.let { onDocumentMoved(sourceUri, it.toString()) }
         newUri != null
     }.getOrDefault(false)
 
@@ -3082,7 +3487,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         state.document.displayName = fork.name
         autosaveUri = fork.uri
         refreshContent()
-        message = "This note changed elsewhere. Your edits are now in \u201c${com.xnotes.core.util.DocumentKind.stripSuffix(fork.name)}\u201d."
+        message = appContext.getString(R.string.note_forked, com.xnotes.core.util.DocumentKind.stripSuffix(fork.name))
     }
 
     /** The canvas sibling of [adoptNoteFork]. Main thread. */
@@ -3092,7 +3497,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         canvas.document.displayName = fork.name
         canvasAutosaveUri = fork.uri
         refreshContent()
-        message = "This canvas changed elsewhere. Your edits are now in \u201c${com.xnotes.core.util.DocumentKind.stripSuffix(fork.name)}\u201d."
+        message = appContext.getString(R.string.canvas_forked, com.xnotes.core.util.DocumentKind.stripSuffix(fork.name))
     }
 
     private fun maybeBindAutosave(uri: String?) {
@@ -3532,7 +3937,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val withCreated = out.map {
             it.copy(created = createdStore.get(documentKey(it.documentUri)) ?: now, color = colors[it.name])
         }
-        val result = withCreated.sortedWith(explorerComparator(settings.explorerSortKey, settings.explorerSortDescending) { it.created })
+        val result = withCreated.sortedWith(explorerComparator(explorerView.sortKey, explorerView.descending) { it.created })
         browseCache["$treeUri|$parentDocId"] = result
         return result
     }
@@ -3600,20 +4005,101 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** Sets (or clears, when [color] is null) the explorer colour for [itemName] in folder [parentDocId];
      *  persisted to that folder's hidden ".xnote/colors.json". IO, call off-thread. */
-    fun setItemColor(treeUri: String, parentDocId: String, itemName: String, color: Rgba?): Boolean = runCatching {
+    fun setItemColor(treeUri: String, parentDocId: String, itemName: String, color: Rgba?): Boolean =
+        setItemColors(treeUri, parentDocId, mapOf(itemName to color))
+
+    /** Applies [changes] (item name to colour, null clears it) to [parentDocId]'s sidecar in one read and one write. IO. */
+    fun setItemColors(treeUri: String, parentDocId: String, changes: Map<String, Rgba?>): Boolean = runCatching {
+        if (changes.isEmpty()) return@runCatching true
         val tree = android.net.Uri.parse(treeUri)
-        val sidecarId = findChildDocId(tree, parentDocId, SIDECAR_DIR, dir = true) ?: run {
-            if (color == null) return@runCatching true // nothing stored, nothing to clear
-            val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, parentDocId)
-            val created = android.provider.DocumentsContract.createDocument(
-                appContext.contentResolver, parent, android.provider.DocumentsContract.Document.MIME_TYPE_DIR, SIDECAR_DIR,
-            ) ?: return@runCatching false
-            android.provider.DocumentsContract.getDocumentId(created)
-        }
+        val sidecarId = sidecarDir(tree, parentDocId, create = changes.values.any { it != null })
+            ?: return@runCatching true // nothing stored, nothing to clear
         val map = readSidecarColors(tree, sidecarId).toMutableMap()
-        if (color == null) map.remove(itemName) else map[itemName] = color
+        for ((name, c) in changes) if (c == null) map.remove(name) else map[name] = c
         writeSidecarColors(tree, sidecarId, map)
     }.getOrDefault(false)
+
+    /** Doc id of [parentDocId]'s hidden sidecar dir, made on demand when [create]; null when absent or on failure. */
+    private fun sidecarDir(tree: android.net.Uri, parentDocId: String, create: Boolean): String? {
+        findChildDocId(tree, parentDocId, SIDECAR_DIR, dir = true)?.let { return it }
+        if (!create) return null
+        val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, parentDocId)
+        val made = android.provider.DocumentsContract.createDocument(
+            appContext.contentResolver, parent, android.provider.DocumentsContract.Document.MIME_TYPE_DIR, SIDECAR_DIR,
+        ) ?: return null
+        return android.provider.DocumentsContract.getDocumentId(made)
+    }
+
+    /** Re-reads [colorNames] for the current root, which another device may have changed. IO. */
+    fun loadColorNames() {
+        val root = browseRoot ?: run { colorNames = emptyMap(); return }
+        val tree = android.net.Uri.parse(root)
+        colorNames = runCatching {
+            sidecarDir(tree, browseRootDocId(root), create = false)?.let { readColorNames(tree, it) }
+        }.getOrNull().orEmpty()
+    }
+
+    /** Names [color] for the whole folder tree; a blank [name] forgets it. IO. */
+    fun setColorName(color: Rgba, name: String?): Boolean = runCatching {
+        val root = browseRoot ?: return@runCatching false
+        val tree = android.net.Uri.parse(root)
+        val clear = name.isNullOrBlank()
+        val sidecarId = sidecarDir(tree, browseRootDocId(root), create = !clear) ?: return@runCatching clear
+        val map = readColorNames(tree, sidecarId).toMutableMap()
+        if (clear) map.remove(color) else map[color] = name!!.trim()
+        writeSidecarJson(tree, sidecarId, COLOR_NAMES_FILE, org.json.JSONObject().put("version", 1).put(
+            "names", org.json.JSONObject().apply { for ((c, n) in map) put(Rgba.toHex(c), n) },
+        )).also { if (it) colorNames = map }
+    }.getOrDefault(false)
+
+    private fun readColorNames(tree: android.net.Uri, sidecarDocId: String): Map<Rgba, String> {
+        val fileId = findChildDocId(tree, sidecarDocId, COLOR_NAMES_FILE, dir = false) ?: return emptyMap()
+        val fileUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, fileId)
+        val text = runCatching {
+            appContext.contentResolver.openInputStream(fileUri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+        }.getOrNull() ?: return emptyMap()
+        return runCatching {
+            val obj = org.json.JSONObject(text).optJSONObject("names") ?: return emptyMap()
+            val map = HashMap<Rgba, String>()
+            for (k in obj.keys()) {
+                val color = Rgba.fromHex(k) ?: continue
+                obj.optString(k).trim().takeIf { it.isNotEmpty() }?.let { map[color] = it }
+            }
+            map
+        }.getOrDefault(emptyMap())
+    }
+
+    /** Overwrites [fileName] in sidecar dir [sidecarDocId] with [obj], creating the file if needed. */
+    private fun writeSidecarJson(tree: android.net.Uri, sidecarDocId: String, fileName: String, obj: org.json.JSONObject): Boolean {
+        val fileId = findChildDocId(tree, sidecarDocId, fileName, dir = false) ?: run {
+            val dirUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, sidecarDocId)
+            val made = android.provider.DocumentsContract.createDocument(
+                appContext.contentResolver, dirUri, "application/octet-stream", fileName,
+            ) ?: return false
+            android.provider.DocumentsContract.getDocumentId(made)
+        }
+        val fileUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, fileId)
+        return runCatching {
+            appContext.contentResolver.openOutputStream(fileUri, "wt")?.use { it.write(obj.toString().toByteArray(Charsets.UTF_8)) }
+            true
+        }.getOrDefault(false)
+    }
+
+    /** Every folder and note in the tree carrying [color], in the explorer's sort order. One query per folder; IO. */
+    fun findByColor(treeUri: String, color: Rgba): List<BrowseEntry> {
+        val out = ArrayList<BrowseEntry>()
+        val seen = HashSet<String>()
+        val stack = ArrayDeque<String>().apply { addLast(browseRootDocId(treeUri)) }
+        while (stack.isNotEmpty()) {
+            val docId = stack.removeLast()
+            if (!seen.add(docId)) continue // guard against any cyclic SAF links
+            for (e in browseChildren(treeUri, docId)) {
+                if (e.color == color) out.add(e)
+                if (e.isDir) stack.addLast(browseDocId(e.documentUri))
+            }
+        }
+        return out.sortedWith(explorerComparator(explorerView.sortKey, explorerView.descending) { it.created })
+    }
 
     /** Carries a colour across a rename: moves key [oldName] -> [newName] in [parentDocId]'s sidecar. */
     fun moveItemColor(treeUri: String, parentDocId: String, oldName: String, newName: String): Boolean = runCatching {
@@ -3624,6 +4110,56 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         map[newName] = c
         writeSidecarColors(tree, sidecarId, map)
     }.getOrDefault(false)
+
+    /** The page count and PDF flag [entry]'s tile shows, if they're known for the file as it is now. Instant. */
+    fun cachedMeta(entry: BrowseEntry): com.xnotes.platform.DocMetaStore.Meta? =
+        docMeta.get(documentKey(entry.documentUri), entry.modified)
+
+    /** [cachedMeta], reading the note's manifest when the cache has nothing current; null for folders and canvases. IO. */
+    fun docMetaFor(entry: BrowseEntry): com.xnotes.platform.DocMetaStore.Meta? {
+        if (entry.isDir || DocumentKind.ofName(entry.name) != DocumentKind.NOTE) return null
+        val key = documentKey(entry.documentUri)
+        docMeta.get(key, entry.modified)?.let { return it }
+        val peek = peekNote(entry.documentUri) ?: return null
+        peek.created?.let { createdStore.put(key, it) }
+        return com.xnotes.platform.DocMetaStore.Meta(peek.pages, peek.hasPdf, entry.modified).also { docMeta.put(key, it) }
+    }
+
+    /** Whether a note annotates a PDF, from whatever was last read of it, however old. */
+    fun knownPdf(entry: BrowseEntry): Boolean = docMeta.latest(documentKey(entry.documentUri))?.pdf == true
+
+    private fun peekNote(uri: String): com.xnotes.format.NotePeek? {
+        val u = android.net.Uri.parse(uri)
+        runCatching {
+            appContext.contentResolver.openFileDescriptor(u, "r")?.use { pfd -> codec.peek(java.io.FileInputStream(pfd.fileDescriptor).channel) }
+        }.getOrNull()?.let { return it }
+        return runCatching { appContext.contentResolver.openInputStream(u)?.use { codec.peek(it) } }.getOrNull()
+    }
+
+    private val folderCounts = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Int>>()
+
+    /** How many notes, canvases and folders [folder] holds, as the explorer would list them. IO, cached by the folder's mtime. */
+    fun folderItemCount(treeUri: String, folder: BrowseEntry): Int {
+        folderCounts[folder.documentUri]?.takeIf { it.first == folder.modified && folder.modified > 0 }?.let { return it.second }
+        val tree = android.net.Uri.parse(treeUri)
+        val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, browseDocId(folder.documentUri))
+        var n = 0
+        runCatching {
+            appContext.contentResolver.query(
+                childrenUri,
+                arrayOf(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME, android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE),
+                null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val name = c.getString(0) ?: continue
+                    val isDir = c.getString(1) == android.provider.DocumentsContract.Document.MIME_TYPE_DIR
+                    if (if (isDir) !name.startsWith(".") else DocumentKind.isDocument(name)) n++
+                }
+            }
+        }
+        folderCounts[folder.documentUri] = folder.modified to n
+        return n
+    }
 
     /** Last-listed children for a folder, to seed the explorer instantly before the refresh. */
     fun cachedChildren(treeUri: String, parentDocId: String): List<BrowseEntry>? = browseCache["$treeUri|$parentDocId"]
@@ -3652,8 +4188,246 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
                 }
             }
         }
-        return out.sortedWith(explorerComparator(settings.explorerSortKey, settings.explorerSortDescending) { it.created })
+        return out.sortedWith(explorerComparator(explorerView.sortKey, explorerView.descending) { it.created })
     }
+
+    // --- Trash (a hidden folder in the top folder's sidecar, so it travels with the notes) ---
+
+    /** The Trash folder under [treeUri]'s top folder, made on demand when [create]; null when there is none. */
+    private fun trashDir(treeUri: String, create: Boolean): String? {
+        val tree = android.net.Uri.parse(treeUri)
+        val side = sidecarDir(tree, browseRootDocId(treeUri), create) ?: return null
+        findChildDocId(tree, side, TRASH_DIR, dir = true)?.let { return it }
+        if (!create) return null
+        val made = android.provider.DocumentsContract.createDocument(
+            appContext.contentResolver, android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, side),
+            android.provider.DocumentsContract.Document.MIME_TYPE_DIR, TRASH_DIR,
+        ) ?: return null
+        return android.provider.DocumentsContract.getDocumentId(made)
+    }
+
+    /** The folder names from the top folder down to [folderDocId], or null when the provider can't say. IO. */
+    private fun namesTo(treeUri: String, folderDocId: String): List<String>? {
+        if (folderDocId == browseRootDocId(treeUri)) return emptyList()
+        val uri = android.provider.DocumentsContract.buildDocumentUriUsingTree(android.net.Uri.parse(treeUri), folderDocId).toString()
+        return folderChain(treeUri, uri)?.map { it.second }
+    }
+
+    /** (id, name, is a folder) for each child of [docId]. */
+    private fun childRows(tree: android.net.Uri, docId: String): List<Triple<String, String, Boolean>> {
+        val out = ArrayList<Triple<String, String, Boolean>>()
+        runCatching {
+            appContext.contentResolver.query(
+                android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId),
+                arrayOf(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE,
+                ),
+                null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getString(0) ?: continue
+                    out.add(Triple(id, c.getString(1) ?: continue, c.getString(2) == android.provider.DocumentsContract.Document.MIME_TYPE_DIR))
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * Moves [entries] into Trash, each into a folder of its own with a note of where it was, when and in what
+     * colour. Returns what went in, for an undo, and what couldn't (a provider that can't move, say). IO.
+     */
+    fun trashEntries(treeUri: String, entries: List<BrowseEntry>): Pair<List<TrashItem>, List<BrowseEntry>> {
+        val tree = android.net.Uri.parse(treeUri)
+        val resolver = appContext.contentResolver
+        val trash = runCatching { trashDir(treeUri, create = true) }.getOrNull() ?: return emptyList<TrashItem>() to entries
+        val trashed = ArrayList<TrashItem>()
+        val failed = ArrayList<BrowseEntry>()
+        val cleared = HashMap<String, HashMap<String, Rgba?>>()
+        for (e in entries) {
+            val item = runCatching {
+                val now = System.currentTimeMillis()
+                val wrapper = android.provider.DocumentsContract.createDocument(
+                    resolver, android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, trash),
+                    android.provider.DocumentsContract.Document.MIME_TYPE_DIR, "$now-${java.util.UUID.randomUUID().toString().take(6)}",
+                ) ?: return@runCatching null
+                val wrapperId = android.provider.DocumentsContract.getDocumentId(wrapper)
+                val path = namesTo(treeUri, e.parentDocId).orEmpty()
+                val info = org.json.JSONObject()
+                    .put("version", 1)
+                    .put("name", e.name)
+                    .put("path", org.json.JSONArray(path))
+                    .put("deleted", java.time.Instant.ofEpochMilli(now).toString())
+                    .apply { e.color?.let { put("colour", Rgba.toHex(it)) } }
+                val moved = if (writeSidecarJson(tree, wrapperId, TRASH_INFO, info)) {
+                    runCatching {
+                        android.provider.DocumentsContract.moveDocument(
+                            resolver, android.net.Uri.parse(e.documentUri),
+                            android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, e.parentDocId), wrapper,
+                        )
+                    }.getOrNull()
+                } else null
+                if (moved == null) {
+                    runCatching { android.provider.DocumentsContract.deleteDocument(resolver, wrapper) }
+                    return@runCatching null
+                }
+                // The open note stops writing to where it was; what's keyed by its identity follows it in.
+                detachIfOpen(e.documentUri)
+                onDocumentMoved(e.documentUri, moved.toString())
+                dropPinsWithin(moved.toString())
+                dropRecentsWithin(moved.toString())
+                TrashItem(wrapperId, e.copy(documentUri = moved.toString(), parentDocId = wrapperId), path, now)
+            }.getOrNull()
+            if (item == null) {
+                failed.add(e)
+            } else {
+                trashed.add(item)
+                if (e.color != null) cleared.getOrPut(e.parentDocId) { HashMap() }[e.name] = null
+            }
+        }
+        for ((parent, changes) in cleared) setItemColors(treeUri, parent, changes)
+        refreshTrashCount(treeUri)
+        return trashed to failed
+    }
+
+    /** What waits in Trash, newest first. A wrapper whose item has gone is cleared away. IO. */
+    fun listTrash(treeUri: String): List<TrashItem> {
+        val tree = android.net.Uri.parse(treeUri)
+        val trash = trashDir(treeUri, create = false) ?: run { trashCount = 0; return emptyList() }
+        val out = ArrayList<TrashItem>()
+        for ((wrapperId, wrapperName, isDir) in childRows(tree, trash)) {
+            if (!isDir) continue
+            val children = childRows(tree, wrapperId)
+            val info = children.firstOrNull { !it.third && it.second == TRASH_INFO }?.let { (id, _, _) ->
+                runCatching {
+                    appContext.contentResolver.openInputStream(android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id))
+                        ?.use { org.json.JSONObject(it.readBytes().toString(Charsets.UTF_8)) }
+                }.getOrNull()
+            }
+            val (itemId, itemName, itemIsDir) = children.firstOrNull { it.third || it.second != TRASH_INFO } ?: run {
+                runCatching { android.provider.DocumentsContract.deleteDocument(appContext.contentResolver, android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, wrapperId)) }
+                continue
+            }
+            val itemUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, itemId).toString()
+            val stamp = stampOf(itemUri)
+            val deleted = info?.optString("deleted")?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+                ?: wrapperName.substringBefore('-').toLongOrNull() ?: 0L
+            val path = info?.optJSONArray("path")?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).ifEmpty { null } } }.orEmpty()
+            val entry = BrowseEntry(
+                name = itemName, documentUri = itemUri, isDir = itemIsDir,
+                size = stamp?.size?.coerceAtLeast(0) ?: 0, modified = stamp?.modified?.coerceAtLeast(0) ?: 0,
+                created = createdStore.get(documentKey(itemUri)) ?: 0, parentDocId = wrapperId,
+                color = info?.optString("colour")?.let { Rgba.fromHex(it) },
+            )
+            out.add(TrashItem(wrapperId, entry, path, deleted))
+        }
+        trashCount = out.size
+        return out.sortedByDescending { it.deleted }
+    }
+
+    /** Recount Trash for the sidebar. IO. */
+    fun refreshTrashCount(treeUri: String) {
+        val trash = trashDir(treeUri, create = false)
+        trashCount = if (trash == null) 0 else childRows(android.net.Uri.parse(treeUri), trash).count { it.third }
+    }
+
+    /**
+     * Puts [item] back in the folder it came from, or in the top folder when that one is gone, under a free
+     * name if its own is taken there, colour code and all. IO.
+     */
+    fun restoreTrash(treeUri: String, item: TrashItem): Boolean = runCatching {
+        val tree = android.net.Uri.parse(treeUri)
+        val resolver = appContext.contentResolver
+        val rootId = browseRootDocId(treeUri)
+        val dest = item.path.fold<String, String?>(rootId) { at, name -> at?.let { findChildDocId(tree, it, name, dir = true) } } ?: rootId
+        var uri = android.net.Uri.parse(item.entry.documentUri)
+        var name = item.entry.name
+        val taken = childRows(tree, dest).mapTo(HashSet()) { it.second.lowercase() }
+        if (name.lowercase() in taken) {
+            name = freeName(name, taken, splitExtension = !item.entry.isDir)
+            uri = android.provider.DocumentsContract.renameDocument(resolver, uri, name) ?: return@runCatching false
+        }
+        val moved = android.provider.DocumentsContract.moveDocument(
+            resolver, uri, android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, item.wrapperDocId),
+            android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, dest),
+        ) ?: return@runCatching false
+        onDocumentMoved(item.entry.documentUri, moved.toString(), name.takeIf { it != item.entry.name })
+        item.entry.color?.let { setItemColor(treeUri, dest, name, it) }
+        runCatching { android.provider.DocumentsContract.deleteDocument(resolver, android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, item.wrapperDocId)) }
+        refreshTrashCount(treeUri)
+        true
+    }.getOrDefault(false)
+
+    /** "Name (2).xnote": [name] made free among [taken] (lowercased). */
+    private fun freeName(name: String, taken: Set<String>, splitExtension: Boolean): String {
+        val dot = if (splitExtension) name.lastIndexOf('.') else -1
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var n = 2
+        var candidate = "$stem ($n)$ext"
+        while (candidate.lowercase() in taken) candidate = "$stem (${++n})$ext"
+        return candidate
+    }
+
+    /** Takes [items] back out of Trash, off the screen that trashed them, and has the explorer list again. */
+    fun undoTrash(treeUri: String, items: List<TrashItem>) {
+        autosaveScope.launch {
+            withContext(Dispatchers.IO) { items.forEach { restoreTrash(treeUri, it) } }
+            treeVersion++
+        }
+    }
+
+    /** Deletes [item] for good. IO. */
+    fun deleteTrash(treeUri: String, item: TrashItem, recount: Boolean = true): Boolean = runCatching {
+        val wrapper = android.provider.DocumentsContract.buildDocumentUriUsingTree(android.net.Uri.parse(treeUri), item.wrapperDocId)
+        val ok = android.provider.DocumentsContract.deleteDocument(appContext.contentResolver, wrapper)
+        if (ok) purgeDeleted(item.entry.documentUri)
+        if (recount) refreshTrashCount(treeUri)
+        ok
+    }.getOrDefault(false)
+
+    /** Deletes everything in Trash for good; returns how many items went. IO. */
+    fun emptyTrash(treeUri: String): Int {
+        val gone = listTrash(treeUri).count { deleteTrash(treeUri, it, recount = false) }
+        refreshTrashCount(treeUri)
+        return gone
+    }
+
+    /** Deletes for good whatever has waited in Trash longer than [days]; nothing when Trash keeps things until emptied. IO. */
+    fun purgeExpiredTrash(treeUri: String, days: Int) {
+        if (days <= 0) { refreshTrashCount(treeUri); return }
+        val cutoff = System.currentTimeMillis() - days * 86_400_000L
+        listTrash(treeUri).filter { it.deleted in 1 until cutoff }.forEach { deleteTrash(treeUri, it, recount = false) }
+        refreshTrashCount(treeUri)
+    }
+
+    /** Every note and canvas in [startDocId], and in its subfolders too when [recursive]. One query per folder; IO. */
+    fun filesUnder(treeUri: String, startDocId: String, recursive: Boolean): TreeFiles {
+        val tree = android.net.Uri.parse(treeUri)
+        val files = ArrayList<BrowseEntry>()
+        val names = HashMap<String, String>()
+        queryDisplayName(android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, startDocId))?.let { names[startDocId] = it }
+        val seen = HashSet<String>()
+        val stack = ArrayDeque<String>().apply { addLast(startDocId) }
+        while (stack.isNotEmpty()) {
+            val docId = stack.removeLast()
+            if (!seen.add(docId)) continue // guard against any cyclic SAF links
+            for (e in browseChildren(treeUri, docId)) {
+                if (!e.isDir) files.add(e)
+                else if (recursive) {
+                    val id = browseDocId(e.documentUri)
+                    names[id] = e.name
+                    stack.addLast(id)
+                }
+            }
+        }
+        return TreeFiles(files, names)
+    }
+
+    /** Whether two uris name the same document, however each was reached. */
+    fun isSameDocument(a: String, b: String): Boolean = documentKey(a) == documentKey(b)
 
     /** Warm the backstage caches off-thread (after launch) so its first open paints instantly. */
     fun prewarmBackstage() {
@@ -3994,7 +4768,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     fun deleteCurrentPage() {
         if (state.document.pages.size <= 1) {
-            message = "A note must keep at least one page."
+            message = appContext.getString(R.string.err_keep_one_page)
             return
         }
         val index = state.currentPageIndex()
@@ -4018,7 +4792,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     /** Clear all of a page's items but keep the page (and its PDF/template background). Undoable. */
     fun erasePage(index: Int) {
         val page = pageAt(index) ?: return
-        if (page.items.isEmpty()) { message = "That page is already empty."; return }
+        if (page.items.isEmpty()) { message = appContext.getString(R.string.page_already_empty); return }
         val removals = page.items.map { page to it }
         page.items.clear()
         history.push(EraseItems(removals))
@@ -4038,7 +4812,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     fun cutPages(indices: List<Int>) {
         if (indices.isEmpty()) return
         if (indices.distinct().size >= state.document.pages.size) {
-            message = "A note must keep at least one page."
+            message = appContext.getString(R.string.err_keep_one_page)
             return
         }
         copyPages(indices)
@@ -4069,7 +4843,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val targets = indices.filter { it in pages.indices }.distinct().sortedDescending()
         if (targets.isEmpty()) return
         if (targets.size >= pages.size) {
-            message = "A note must keep at least one page."
+            message = appContext.getString(R.string.err_keep_one_page)
             return
         }
         val cmds = ArrayList<Command>()
@@ -4472,18 +5246,18 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     fun importCodeTheme(bytes: ByteArray, sourceName: String? = null) {
         val parsed = com.xnotes.format.HelixTheme.parse(String(bytes, Charsets.UTF_8))
         if (parsed == null) {
-            message = "Not a usable Helix theme (a self-contained .toml is needed)."
+            message = appContext.getString(R.string.err_helix_theme)
             return
         }
         val file = java.io.File(java.io.File(appContext.filesDir, "theme").apply { mkdirs() }, "code.toml")
         runCatching { file.writeBytes(bytes) }.onFailure {
-            message = "Couldn't store the theme file."
+            message = appContext.getString(R.string.err_store_theme)
             return
         }
         customCodeTheme = parsed
         applyPreferences(settings.prefs.copy(codeThemePath = file.path, codeThemeName = sourceName))
         retheme()
-        message = "Code theme imported."
+        message = appContext.getString(R.string.code_theme_imported)
     }
 
     /** Back to the built-in dark/light code colours. */
@@ -4508,9 +5282,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** Adopt a font file for the pickers; reports via [message]. */
     fun importFont(bytes: ByteArray, sourceName: String?) {
-        com.xnotes.platform.FontCatalog.importFont(bytes, sourceName)
-            .onSuccess { message = "Font \"${it.id}\" imported." }
-            .onFailure { message = it.message ?: "Could not import that font." }
+        com.xnotes.platform.FontCatalog.importFont(appContext, bytes, sourceName)
+            .onSuccess { message = appContext.getString(R.string.font_imported, it.id) }
+            .onFailure { message = it.message ?: appContext.getString(R.string.err_import_font) }
         fontsChanged()
     }
 

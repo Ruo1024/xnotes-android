@@ -25,8 +25,8 @@ android {
         applicationId = "com.xnotes"
         minSdk = 26
         targetSdk = 36
-        versionCode = 54
-        versionName = "0.8.17"
+        versionCode = 55
+        versionName = "0.8.18"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
@@ -90,6 +90,11 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    // Lists every values-* translation in the manifest so Android 13+ offers a per-app language.
+    androidResources {
+        generateLocaleConfig = true
     }
 }
 
