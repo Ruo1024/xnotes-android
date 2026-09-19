@@ -1,6 +1,7 @@
 package com.xnotes.canvas
 
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import com.xnotes.core.FakeSurfaceFactory
 import com.xnotes.core.FakeTextMeasurer
@@ -9,6 +10,7 @@ import com.xnotes.core.history.History
 import com.xnotes.core.infinite.CanvasSelection
 import com.xnotes.core.infinite.CanvasViewport
 import com.xnotes.core.infinite.InfiniteDocument
+import com.xnotes.core.infinite.EraseSession
 import com.xnotes.core.model.Document
 import com.xnotes.core.model.Page
 import com.xnotes.core.model.Rgba
@@ -17,6 +19,7 @@ import com.xnotes.core.stroke.Sample
 import com.xnotes.core.tools.Tool
 import com.xnotes.core.tools.ToolDefaults
 import com.xnotes.ui.InfiniteInteraction
+import com.xnotes.ui.CanvasPointerMode
 import com.xnotes.ui.theme.Palette
 import org.junit.Assert.*
 import org.junit.Test
@@ -55,7 +58,7 @@ class StylusContactIntegrationTest {
             viewportW = 800; viewportH = 1000; relayout()
         }
         val controller = InteractionController(state, History(), FakeTextMeasurer(), {}).apply {
-            spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.SELECT
+            tool = Tool.PEN; spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.SELECT
         }
         fun event(action: Int, x: Double, y: Double, eraser: Boolean) {
             val content = state.fromPageSpace(0, Pt(x, y))
@@ -104,5 +107,146 @@ class StylusContactIntegrationTest {
         send(controller::onTouch, MotionEvent.ACTION_MOVE, 120.0, 120.0)
         send(controller::onTouch, MotionEvent.ACTION_UP, 140.0, 140.0)
         assertEquals(1, committed.size)
+    }
+
+    @Test fun waitingForLiftIgnoresRepressAndMove() {
+        val controller = InfiniteInteraction(CanvasViewport(), {}).apply {
+            spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.PAN
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0, true)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 20.0, 20.0)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 40.0, 40.0, true)
+        assertEquals(CanvasPointerMode.IDLE, controller.mode)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 40.0, 40.0, true)
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 60.0, 60.0, true)
+        assertEquals(CanvasPointerMode.PAN, controller.mode)
+    }
+
+    @Test fun secondaryReleaseFallsBackToHeldPrimaryBeforeWaiting() {
+        val controller = InfiniteInteraction(CanvasViewport(), {}).apply {
+            spenThirdPartyButtons = true
+            penButtonTool = Tool.PAN; penSecondaryButtonTool = Tool.SELECT
+        }
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY, true)
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0)
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, true)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 20.0, 20.0)
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, false)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 30.0, 30.0)
+        assertEquals(CanvasPointerMode.PAN, controller.mode)
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY, false)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 40.0, 40.0)
+        assertEquals(CanvasPointerMode.IDLE, controller.mode)
+    }
+
+    @Test fun disabledSecondaryDoesNotSplitTheStroke() {
+        val committed = mutableListOf<Stroke>()
+        val controller = InfiniteInteraction(CanvasViewport(), {}, onCommitStroke = { committed.add(it) }).apply {
+            spenThirdPartyButtons = true; penSecondaryButtonTool = null
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 20.0, 20.0, true)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 30.0, 30.0)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 40.0, 40.0)
+        assertEquals(1, committed.size)
+    }
+
+    @Test fun compatibilityOffKeepsTheOriginalContactTool() {
+        val controller = InfiniteInteraction(CanvasViewport(), {}).apply {
+            spenThirdPartyButtons = false; penButtonTool = Tool.PAN
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0,
+            buttons = MotionEvent.BUTTON_STYLUS_PRIMARY)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 20.0, 20.0)
+        assertEquals(CanvasPointerMode.PAN, controller.mode)
+    }
+
+    @Test fun focusLossCancelsContactAndIgnoresTrailingMoveAndUp() {
+        val committed = mutableListOf<Stroke>()
+        val controller = InfiniteInteraction(CanvasViewport(), {}, onCommitStroke = { committed.add(it) }).apply {
+            spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.PAN
+        }
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, true)
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0)
+        controller.releaseStylusButtons() // same callback as window focus loss
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 30.0, 30.0)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 50.0, 50.0)
+        assertTrue(committed.isEmpty())
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 60.0, 60.0)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 80.0, 80.0)
+        assertEquals(1, committed.size)
+    }
+
+    @Test fun cancelledEraseStillProducesOneUndoAndNoTrailingStroke() {
+        val document = InfiniteDocument()
+        val item = dot()
+        document.add(item)
+        val history = History()
+        val controller = InfiniteInteraction(CanvasViewport(), {},
+            onEraseBegin = { EraseSession(document) },
+            onEraseEnd = { it.buildCommand()?.let(history::push) }).apply {
+            spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.ERASER
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 100.0, 100.0, true)
+        send(controller::onTouch, MotionEvent.ACTION_CANCEL, 100.0, 100.0, true)
+        assertTrue(history.canUndo)
+        history.undo()
+        assertFalse(history.canUndo)
+        assertTrue(document.itemsIn(item.paintBounds()).contains(item))
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 200.0, 200.0)
+        assertEquals(CanvasPointerMode.DRAW, controller.mode)
+    }
+
+    @Test fun pagedFocusLossDuringEraseKeepsUndoAndSuppressesTrailingInput() {
+        val item = dot()
+        val page = Page(400.0, 400.0, mutableListOf(item))
+        val state = CanvasState(Document(mutableListOf(page)), FakeSurfaceFactory(),
+            Palette.forAppearance("dark", Rgba(0, 230, 118))).apply {
+            viewportW = 800; viewportH = 1000; relayout()
+        }
+        val history = History()
+        val controller = InteractionController(state, history, FakeTextMeasurer(), {}).apply {
+            tool = Tool.PEN; spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.ERASER
+        }
+        fun event(action: Int, x: Double, y: Double, eraser: Boolean = false) {
+            val point = state.contentToViewport(state.fromPageSpace(0, Pt(x, y)))
+            send(controller::onTouch, action, point.x, point.y, eraser)
+        }
+        event(MotionEvent.ACTION_DOWN, 100.0, 100.0, true)
+        controller.releaseStylusButtons()
+        event(MotionEvent.ACTION_MOVE, 180.0, 180.0)
+        event(MotionEvent.ACTION_UP, 200.0, 200.0)
+        assertTrue(history.canUndo)
+        history.undo()
+        assertEquals(listOf(item), page.items)
+        assertFalse("erase must be a single undo step", history.canUndo)
+        event(MotionEvent.ACTION_DOWN, 250.0, 250.0)
+        event(MotionEvent.ACTION_UP, 280.0, 280.0)
+        assertEquals(2, page.items.size)
+    }
+
+    @Test fun pressingPanCommitsTheOutgoingStrokeOnlyOnce() {
+        val committed = mutableListOf<Stroke>()
+        val controller = InfiniteInteraction(CanvasViewport(), {}, onCommitStroke = { committed.add(it) }).apply {
+            spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.PAN
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 30.0, 30.0)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 50.0, 50.0, true)
+        assertEquals(1, committed.size)
+        assertEquals(CanvasPointerMode.PAN, controller.mode)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 70.0, 70.0, true)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 90.0, 90.0)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 110.0, 110.0)
+        assertEquals(1, committed.size)
+    }
+
+    @Test fun hoverDuringContactCannotReplaceTheLiveGesture() {
+        val controller = InfiniteInteraction(CanvasViewport(), {}).apply {
+            spenThirdPartyButtons = true; penSecondaryButtonTool = Tool.PAN; penButtonHover = true
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0)
+        send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 20.0, 20.0, true)
+        assertEquals(CanvasPointerMode.DRAW, controller.mode)
     }
 }

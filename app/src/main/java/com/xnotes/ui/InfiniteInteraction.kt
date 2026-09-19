@@ -128,6 +128,8 @@ class InfiniteInteraction(
     var penButtonHover = false
     private var hoverActionTool: Tool? = null
     private var contactButtonTool: Tool? = null
+    private var stylusContactActive = false
+    private var waitForStylusLift = false
 
     /** Zoom lock: a pinch pans without changing the zoom, mirroring the paged canvas. */
     var zoomLocked: Boolean = false
@@ -208,12 +210,27 @@ class InfiniteInteraction(
     private var pinchAnchorContent = Pt.ZERO
 
     fun onTouch(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            waitForStylusLift = false
+            stylusContactActive = StylusButtonLatch.isPen(e.getToolType(0))
+        } else if (waitForStylusLift && e.actionMasked != MotionEvent.ACTION_CANCEL) {
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                waitForStylusLift = false
+                stylusContactActive = false
+                contactButtonTool = null
+            }
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> handleDown(e)
             MotionEvent.ACTION_POINTER_DOWN -> handlePointerDown(e)
             MotionEvent.ACTION_MOVE -> handleMove(e)
             MotionEvent.ACTION_POINTER_UP -> handlePointerUp(e)
-            MotionEvent.ACTION_UP -> handleUp(e)
+            MotionEvent.ACTION_UP -> {
+                handleUp(e)
+                stylusContactActive = false
+                contactButtonTool = null
+            }
             MotionEvent.ACTION_CANCEL -> { releaseStylusButtons(); abortGesture() }
         }
         return true
@@ -241,9 +258,15 @@ class InfiniteInteraction(
         stylusButtons.reset()
         contactButtonTool = null
         endHoverAction()
+        if (spenThirdPartyButtons && stylusContactActive) {
+            abortGesture()
+            waitForStylusLift = true
+        }
+        stylusContactActive = false
     }
 
     fun onHover(e: MotionEvent): Boolean {
+        if (spenThirdPartyButtons && stylusContactActive) return false
         val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true)
         val wanted = if (penButtonHover && e.actionMasked != MotionEvent.ACTION_HOVER_EXIT &&
             (buttonTool == Tool.ERASER || buttonTool == Tool.PAN)) buttonTool else null
@@ -464,8 +487,17 @@ class InfiniteInteraction(
             panFromPenButton = true
             handleUp(boundary)
             stopFling()
-            boundary.action = MotionEvent.ACTION_DOWN
-            handleDown(boundary)
+            contactButtonTool = next
+            // Only a real subsequent DOWN may resume the armed drawing tool.
+            val x = e.getX(0).toDouble()
+            val y = e.getY(0).toDouble()
+            when (next) {
+                Tool.PAN -> beginPan(x, y, fromPenButton = true)
+                Tool.ERASER -> { clearSelection(); beginErase(x, y) }
+                Tool.SELECT -> beginSelect(x, y)
+                else -> waitForStylusLift = true
+            }
+            requestRender()
             return true
         } finally {
             boundary.recycle()

@@ -175,6 +175,8 @@ class InteractionController(
     var penSecondaryButtonTool: Tool? = Tool.ERASER
     var spenThirdPartyButtons = false
     private var contactButtonTool: Tool? = null
+    private var stylusContactActive = false
+    private var waitForStylusLift = false
 
     /** When true, the side-button tool also runs off the hover stream (no contact needed); eraser/pan only. */
     var penButtonHover: Boolean = false
@@ -431,12 +433,27 @@ class InteractionController(
     // --- touch entry point ---
 
     fun onTouch(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            waitForStylusLift = false
+            stylusContactActive = StylusButtonLatch.isPen(e.getToolType(0))
+        } else if (waitForStylusLift && e.actionMasked != MotionEvent.ACTION_CANCEL) {
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                waitForStylusLift = false
+                stylusContactActive = false
+                contactButtonTool = null
+            }
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> handleDown(e)
             MotionEvent.ACTION_POINTER_DOWN -> handlePointerDown(e)
             MotionEvent.ACTION_MOVE -> handleMove(e)
             MotionEvent.ACTION_POINTER_UP -> handlePointerUp(e)
-            MotionEvent.ACTION_UP -> handleUp(e)
+            MotionEvent.ACTION_UP -> {
+                handleUp(e)
+                stylusContactActive = false
+                contactButtonTool = null
+            }
             MotionEvent.ACTION_CANCEL -> {
                 releaseStylusButtons()
                 abortGesture()
@@ -447,6 +464,7 @@ class InteractionController(
     }
 
     fun onHover(e: MotionEvent): Boolean {
+        if (spenThirdPartyButtons && stylusContactActive) return false
         if (handleHoverAction(e)) return true
         val isEraserPointer = !spenThirdPartyButtons && e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
         if (tool != Tool.ERASER && !isEraserPointer) return false
@@ -532,6 +550,14 @@ class InteractionController(
         stylusButtons.reset()
         contactButtonTool = null
         if (hoverActionTool != null) endHoverAction()
+        if (spenThirdPartyButtons && stylusContactActive) {
+            // Erasing edits the document immediately: retain its undo before cancelling.
+            if (mode == PointerMode.ERASE) endErase()
+            abortGesture()
+            waitForStylusLift = true
+            requestRender()
+        }
+        stylusContactActive = false
     }
 
     private fun handleDown(e: MotionEvent) {
@@ -730,8 +756,22 @@ class InteractionController(
             }
             cancelLongPress()
             mode = PointerMode.IDLE
-            boundary.action = MotionEvent.ACTION_DOWN
-            handleDown(boundary)
+            contactButtonTool = next
+            // Releasing the final temporary tool is not a new pen-down. In particular,
+            // do not clear a finished selection or start a stroke under the still-down nib.
+            val vx = e.getX(idx).toDouble()
+            val vy = e.getY(idx).toDouble()
+            when (next) {
+                Tool.PAN -> if (singleFingerPanAllowed()) beginPan(vx, vy, fromPenButton = true)
+                Tool.ERASER -> {
+                    clearSelection()
+                    erasingWithFinger = false
+                    beginErase(vx, vy)
+                }
+                Tool.SELECT -> beginSelect(state.viewportToContent(Pt(vx, vy)))
+                else -> waitForStylusLift = true
+            }
+            requestRender()
             return true
         } finally {
             boundary.recycle()
