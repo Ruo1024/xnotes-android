@@ -92,6 +92,15 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED")
+        }
+    }
+
     // Lists every values-* translation in the manifest so Android 13+ offers a per-app language.
     androidResources {
         generateLocaleConfig = true
@@ -131,4 +140,5 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.json)
+    testImplementation("org.robolectric:robolectric:4.17")
 }
