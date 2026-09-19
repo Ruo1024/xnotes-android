@@ -249,4 +249,42 @@ class StylusContactIntegrationTest {
         send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 20.0, 20.0, true)
         assertEquals(CanvasPointerMode.DRAW, controller.mode)
     }
+
+    @Test fun replacingInfiniteDocumentDoesNotCommitTheOldEraseIntoNewHistory() {
+        val document = InfiniteDocument().apply { add(dot()) }
+        val newHistory = History()
+        val controller = InfiniteInteraction(CanvasViewport(), {},
+            onEraseBegin = { EraseSession(document) },
+            onEraseEnd = { it.buildCommand()?.let(newHistory::push) }).apply {
+            spenThirdPartyButtons = true
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 100.0, 100.0, true)
+        // The editor has installed a new document and cleared its history before reset.
+        newHistory.clear()
+        controller.resetGestureState()
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 200.0, 200.0)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 220.0, 220.0)
+        assertFalse("old eraser must not enter the new document's history", newHistory.canUndo)
+        assertEquals(CanvasPointerMode.IDLE, controller.mode)
+    }
+
+    @Test fun replacingPagedDocumentDoesNotCommitTheOldEraseIntoNewHistory() {
+        val state = CanvasState(Document(mutableListOf(Page(400.0, 400.0, mutableListOf(dot())))),
+            FakeSurfaceFactory(), Palette.forAppearance("dark", Rgba(0, 230, 118))).apply {
+            viewportW = 800; viewportH = 1000; relayout()
+        }
+        val history = History()
+        val controller = InteractionController(state, history, FakeTextMeasurer(), {}).apply {
+            tool = Tool.PEN; spenThirdPartyButtons = true
+        }
+        val point = state.contentToViewport(state.fromPageSpace(0, Pt(100.0, 100.0)))
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, point.x, point.y, true)
+        state.document = Document(mutableListOf(Page(400.0, 400.0)))
+        history.clear()
+        controller.resetGestureState()
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, point.x, point.y)
+        send(controller::onTouch, MotionEvent.ACTION_UP, point.x, point.y)
+        assertFalse(history.canUndo)
+        assertTrue(state.document.pages[0].items.isEmpty())
+    }
 }
