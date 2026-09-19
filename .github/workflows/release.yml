@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag (v0.8.18-zh.1)
+        description: Release tag (v0.8.18-zh.2)
         required: true
-        default: v0.8.18-zh.1
+        default: v0.8.18-zh.2
       replace_existing:
         description: Replace the existing release assets and move its tag after verification
         type: boolean
