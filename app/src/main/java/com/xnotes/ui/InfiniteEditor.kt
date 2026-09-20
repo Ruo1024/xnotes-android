@@ -120,6 +120,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     /** The armed tool, mirrored into Compose so the toolbar can show which one it is. */
     var tool by mutableStateOf(Tool.PEN)
         private set
+    val displayTool: Tool get() = interaction.displayTool
 
     /** The active ink colour, used by any tool without a colour override of its own. */
     var inkColor by mutableStateOf(InkPalette.DEFAULT)
@@ -365,10 +366,13 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     // --- tools ---
 
     fun armTool(next: Tool) {
+        interaction.cancelButtonOverride()
         // Leaving the selection tools drops the selection, so its chrome cannot linger over ink.
         if (tool != next && (tool == Tool.SELECT || tool == Tool.LASSO)) interaction.clearSelection()
         adoptTool(next)
     }
+
+    fun cancelButtonOverride() = interaction.cancelButtonOverride()
 
     /** Show a tool the gesture layer armed by itself: a long-press grab, and its release. */
     private fun adoptTool(next: Tool) {
@@ -1331,6 +1335,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
         fingerDraws: Boolean, penButtonTool: Tool?, zoomLockPan: String = "single",
         penSecondaryButtonTool: Tool? = penButtonTool, spenThirdPartyButtons: Boolean = false,
         penButtonHover: Boolean = false,
+        penPrimaryToggle: Boolean = false, penSecondaryToggle: Boolean = false,
     ) {
         interaction.releaseStylusButtons()
         interaction.fingerDraws = fingerDraws
@@ -1338,6 +1343,8 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
         interaction.penSecondaryButtonTool = penSecondaryButtonTool
         interaction.spenThirdPartyButtons = spenThirdPartyButtons
         interaction.penButtonHover = penButtonHover
+        interaction.penPrimaryToggle = penPrimaryToggle
+        interaction.penSecondaryToggle = penSecondaryToggle
         interaction.zoomLockPan = zoomLockPan
     }
 

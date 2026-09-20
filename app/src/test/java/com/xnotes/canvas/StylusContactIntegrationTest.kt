@@ -31,6 +31,90 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class StylusContactIntegrationTest {
+    @Test fun toggledPanSurvivesLiftAndTemporaryEraser() {
+        val document = InfiniteDocument()
+        val controller = InfiniteInteraction(CanvasViewport(), {},
+            onEraseBegin = { EraseSession(document) }).apply {
+            spenThirdPartyButtons = true
+            penButtonTool = Tool.ERASER
+            penSecondaryButtonTool = Tool.PAN
+            penSecondaryToggle = true
+        }
+        send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 10.0, 10.0, true)
+        send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 10.0, 10.0)
+        assertEquals(Tool.PAN, controller.displayTool)
+        assertEquals(CanvasPointerMode.IDLE, controller.mode)
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 20.0, 20.0)
+        assertEquals(CanvasPointerMode.PAN, controller.mode)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 30.0, 30.0)
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 40.0, 40.0,
+            buttons = MotionEvent.BUTTON_STYLUS_PRIMARY)
+        assertEquals(CanvasPointerMode.ERASE, controller.mode)
+        assertEquals(Tool.ERASER, controller.displayTool)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 50.0, 50.0)
+        assertEquals(CanvasPointerMode.IDLE, controller.mode)
+        assertEquals(Tool.PAN, controller.displayTool)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 50.0, 50.0)
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 60.0, 60.0)
+        assertEquals(CanvasPointerMode.PAN, controller.mode)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 60.0, 60.0)
+        send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 70.0, 70.0, true)
+        send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 70.0, 70.0)
+        assertEquals(Tool.PEN, controller.displayTool)
+    }
+
+    @Test fun keyAndMotionReportSameToggleOnlyOnce() {
+        val controller = InfiniteInteraction(CanvasViewport(), {}).apply {
+            spenThirdPartyButtons = true; penSecondaryToggle = true; penSecondaryButtonTool = Tool.PAN
+        }
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, true)
+        repeat(3) {
+            send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 10.0, 10.0,
+                buttons = MotionEvent.BUTTON_STYLUS_SECONDARY)
+        }
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, false)
+        send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 10.0, 10.0)
+        assertEquals(Tool.PAN, controller.displayTool)
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, true)
+        assertEquals(Tool.PEN, controller.displayTool)
+    }
+
+    @Test fun toggleDuringDrawingFinishesOnceAndWaitsForLift() {
+        val committed = mutableListOf<Stroke>()
+        val controller = InfiniteInteraction(CanvasViewport(), {}, onCommitStroke = { committed.add(it) }).apply {
+            spenThirdPartyButtons = true; penSecondaryToggle = true; penSecondaryButtonTool = Tool.PAN
+        }
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 10.0, 10.0)
+        send(controller::onTouch, MotionEvent.ACTION_MOVE, 20.0, 20.0, true)
+        assertEquals(1, committed.size)
+        assertEquals(CanvasPointerMode.IDLE, controller.mode)
+        send(controller::onTouch, MotionEvent.ACTION_UP, 30.0, 30.0)
+        send(controller::onTouch, MotionEvent.ACTION_DOWN, 40.0, 40.0)
+        assertEquals(CanvasPointerMode.PAN, controller.mode)
+        assertEquals(1, committed.size)
+    }
+
+    @Test fun pagedManualChoiceAndResetClearToggleWithoutChangingBaseTool() {
+        val state = CanvasState(Document(mutableListOf(Page(400.0, 400.0))),
+            FakeSurfaceFactory(), Palette.forAppearance("dark", Rgba(0, 230, 118)))
+        val controller = InteractionController(state, History(), FakeTextMeasurer(), {}).apply {
+            setTool(Tool.PEN); spenThirdPartyButtons = true
+            penSecondaryToggle = true; penSecondaryButtonTool = Tool.PAN
+        }
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, true)
+        assertEquals(Tool.PAN, controller.displayTool)
+        assertEquals(Tool.PEN, controller.tool)
+        controller.setTool(Tool.SELECT)
+        send(controller::onHover, MotionEvent.ACTION_HOVER_MOVE, 10.0, 10.0,
+            buttons = MotionEvent.BUTTON_STYLUS_SECONDARY)
+        assertEquals(Tool.SELECT, controller.displayTool)
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, false)
+        controller.onStylusButtonKey(KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY, true)
+        assertEquals(Tool.PAN, controller.displayTool)
+        controller.resetGestureState()
+        assertEquals(Tool.SELECT, controller.displayTool)
+    }
+
     private var time = 100L
 
     private fun send(touch: (MotionEvent) -> Boolean, action: Int, x: Double, y: Double,

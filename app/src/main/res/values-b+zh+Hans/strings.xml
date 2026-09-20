@@ -692,4 +692,10 @@
     <string name="pref_pen_primary_hold">笔主按钮（按住）</string>
     <string name="pref_pen_secondary_hold">笔副按钮（按住）</string>
     <string name="caption_value_percent">"%1$s  %2$d%%"</string>
+    <string name="pref_pen_primary">笔主按钮</string>
+    <string name="pref_pen_secondary">笔副按钮</string>
+    <string name="pref_button_trigger">触发方式</string>
+    <string name="pref_button_hold">按住临时使用</string>
+    <string name="pref_button_toggle">按一下切换</string>
+    <string name="pref_button_toggle_help">每个按钮可独立配置。按住工具会临时覆盖保持中的工具，再按一次保持按钮可返回原工具。悬停时启用仅适用于按住模式。</string>
 </resources>

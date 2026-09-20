@@ -260,7 +260,8 @@ private fun ToolButton(
 ) {
     if (icon == null) return
     Box {
-        ToolbarIcon(icon, stringResource(tool.labelRes), active = editor.tool == tool) {
+        ToolbarIcon(icon, stringResource(tool.labelRes), active = editor.displayTool == tool) {
+            editor.cancelButtonOverride()
             if (editor.tool == tool && (tool.isStroke || tool == Tool.SHAPE || tool == Tool.ERASER || tool == Tool.SELECT || tool == Tool.TEXT)) {
                 setConfigForTool(tool)
             } else {

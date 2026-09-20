@@ -712,4 +712,10 @@
     <string name="pref_spen_third_party_help">Treat eraser-tip input as the secondary button. For compatible third-party pens such as Wacom One. This also remaps a physical tail eraser while enabled.</string>
     <string name="pref_pen_primary_hold">Stylus primary button (hold)</string>
     <string name="pref_pen_secondary_hold">Stylus secondary button (hold)</string>
+    <string name="pref_pen_primary">Stylus primary button</string>
+    <string name="pref_pen_secondary">Stylus secondary button</string>
+    <string name="pref_button_trigger">Trigger mode</string>
+    <string name="pref_button_hold">Hold temporarily</string>
+    <string name="pref_button_toggle">Press to toggle</string>
+    <string name="pref_button_toggle_help">Configure each button independently. A held tool temporarily overrides a toggled tool. Press the toggled button again to return to the original tool. Hover activation applies only to held tools.</string>
 </resources>

@@ -367,6 +367,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     var tool by mutableStateOf(Tool.DEFAULT)
         private set
+    val displayTool: Tool get() = controller.displayTool
     var palette by mutableStateOf(state.palette)
         private set
     var zoomPercent by mutableStateOf(100)
@@ -601,7 +602,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         canvas.replaceDocument(doc)
         canvas.applyPalette(palette)
         canvas.applyInputPrefs(settings.prefs.fingerDraws, controller.penButtonTool, settings.prefs.zoomLockPan,
-            controller.penSecondaryButtonTool, settings.prefs.spenThirdPartyButtons, settings.prefs.penButtonHover)
+            controller.penSecondaryButtonTool, settings.prefs.spenThirdPartyButtons, settings.prefs.penButtonHover,
+            settings.prefs.penPrimaryTrigger == "toggle", settings.prefs.penSecondaryTrigger == "toggle")
         canvas.applyZoomRange(settings.prefs.canvasMinZoomPercent, settings.prefs.canvasMaxZoomPercent)
         canvas.onContentChanged = { scheduleCanvasAutosave() }
         // Only a canvas living under the granted folder autosaves; anything else is left alone,
@@ -1662,6 +1664,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
             if (p.penSecondaryButtonTool == "none") null else (Tool.fromId(p.penSecondaryButtonTool) ?: Tool.ERASER),
             p.spenThirdPartyButtons,
             p.penButtonHover,
+            p.penPrimaryTrigger == "toggle", p.penSecondaryTrigger == "toggle",
         )
         infiniteOrNull?.applyZoomRange(p.canvasMinZoomPercent, p.canvasMaxZoomPercent)
         // Both surfaces' pads: the switch is about the device, not about one of them.
@@ -1676,6 +1679,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         controller.releaseStylusButtons()
         controller.spenThirdPartyButtons = p.spenThirdPartyButtons
         controller.penButtonHover = p.penButtonHover
+        controller.penPrimaryToggle = p.penPrimaryTrigger == "toggle"
+        controller.penSecondaryToggle = p.penSecondaryTrigger == "toggle"
         state.sideMargin = p.sideMargin
         state.pageBorders = !p.hidePageBorders
         state.maxCachePx = p.maxCacheResolution.toDouble()
@@ -4539,6 +4544,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         controller.setTool(t)
         tool = t
     }
+
+    fun cancelButtonOverride() = controller.cancelButtonOverride()
 
     /** Run the action a two/three-finger tap or stylus double-tap is mapped to; "none" does nothing. */
     private fun dispatchTapGesture(action: String) = when (action) {

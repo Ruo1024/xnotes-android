@@ -26,12 +26,34 @@ import com.xnotes.core.tools.Tool
 class StylusButtonLatch {
     private val keys = mutableSetOf<Int>()
     private var motionButtons = 0
+    private var eraserButton = 0
+    private var contactButtons = 0
+    val policy = StylusToolState()
+
+    fun configure(primary: Tool?, secondary: Tool?, primaryToggle: Boolean, secondaryToggle: Boolean) =
+        policy.configure(primary, secondary, primaryToggle, secondaryToggle)
+
+    /** Hover exit/pen lift do not imply button release. A later observed release rearms it. */
+    fun observe(e: MotionEvent) {
+        if (!isPen(e.getToolType(0))) return
+        if (e.actionMasked == MotionEvent.ACTION_HOVER_EXIT) return
+        eraserButton = if (e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) SECONDARY else 0
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> contactButtons = normalize(e.buttonState)
+            else -> {
+                contactButtons = 0
+                updateMotion(e.buttonState, e.actionMasked, e.actionButton)
+            }
+        }
+        policy.observe(buttons() or contactButtons or eraserButton)
+    }
 
     val held: Boolean get() = buttons() != 0
 
     fun onGenericMotion(e: MotionEvent): Boolean {
         if (!isPen(e.getToolType(0))) return false
-        updateMotion(e.buttonState, e.actionMasked, e.actionButton)
+        observe(e)
         return !held
     }
 
@@ -54,19 +76,28 @@ class StylusButtonLatch {
             keys.remove(keyCode)
             // Some pens release on a different stream than the press.
             motionButtons = motionButtons and mask.inv()
+            contactButtons = contactButtons and mask.inv()
+            if (mask == SECONDARY) eraserButton = 0
         }
+        policy.observe(buttons() or contactButtons or eraserButton)
         return true
     }
 
     fun reset() {
         keys.clear()
         motionButtons = 0
+        eraserButton = 0
+        contactButtons = 0
+        policy.reset()
     }
 
     fun toolFor(
         e: MotionEvent, primary: Tool?, secondary: Tool?, compatibility: Boolean = false,
         pointerIndex: Int = 0, hover: Boolean = false,
-    ): Tool? = resolveTool(e.getToolType(pointerIndex), e.buttonState, primary, secondary, compatibility, hover)
+    ): Tool? = if (compatibility) {
+        if (!isPen(e.getToolType(pointerIndex))) null
+        else if (hover) policy.heldTool() else policy.tool()
+    } else resolveTool(e.getToolType(pointerIndex), e.buttonState, primary, secondary, false, hover)
 
     /** Wacom One's second side button can change toolType to ERASER with no button bits.
      * Resolve that before the ordinary eraser fallback, including a disabled (null) mapping.

@@ -280,7 +280,7 @@ fun PreferencesPane(
                     fontSize = 12.sp,
                 )
             }
-            FieldLabel(stringResource(if (prefs.spenThirdPartyButtons) R.string.pref_pen_primary_hold else R.string.pref_pen_button_hold))
+            FieldLabel(stringResource(if (prefs.spenThirdPartyButtons) R.string.pref_pen_primary else R.string.pref_pen_button_hold))
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -290,7 +290,13 @@ fun PreferencesPane(
                 }
             }
             if (prefs.spenThirdPartyButtons) {
-                FieldLabel(stringResource(R.string.pref_pen_secondary_hold))
+                val modes = listOf("hold" to stringResource(R.string.pref_button_hold),
+                    "toggle" to stringResource(R.string.pref_button_toggle))
+                if (prefs.penButtonTool != "none") {
+                    FieldLabel(stringResource(R.string.pref_button_trigger))
+                    OptionDropdown(modes, prefs.penPrimaryTrigger) { update(prefs.copy(penPrimaryTrigger = it)) }
+                }
+                FieldLabel(stringResource(R.string.pref_pen_secondary))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -299,9 +305,14 @@ fun PreferencesPane(
                         Chip(stringResource(label), prefs.penSecondaryButtonTool == id) { update(prefs.copy(penSecondaryButtonTool = id)) }
                     }
                 }
+                if (prefs.penSecondaryButtonTool != "none") {
+                    FieldLabel(stringResource(R.string.pref_button_trigger))
+                    OptionDropdown(modes, prefs.penSecondaryTrigger) { update(prefs.copy(penSecondaryTrigger = it)) }
+                }
+                Text(stringResource(R.string.pref_button_toggle_help), color = palette.textDim.toComposeColor(), fontSize = 12.sp)
             }
-            if (prefs.penButtonTool in setOf("eraser", "pan") ||
-                (prefs.spenThirdPartyButtons && prefs.penSecondaryButtonTool in setOf("eraser", "pan"))) {
+            if ((prefs.penButtonTool in setOf("eraser", "pan") && (!prefs.spenThirdPartyButtons || prefs.penPrimaryTrigger == "hold")) ||
+                (prefs.spenThirdPartyButtons && prefs.penSecondaryTrigger == "hold" && prefs.penSecondaryButtonTool in setOf("eraser", "pan"))) {
                 CheckRow(stringResource(R.string.pref_pen_button_hover), prefs.penButtonHover) {
                     update(prefs.copy(penButtonHover = it))
                 }

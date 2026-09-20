@@ -1,5 +1,9 @@
 package com.xnotes.canvas
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 import android.os.Handler
 import android.os.Looper
 import android.view.Choreographer
@@ -177,6 +181,30 @@ class InteractionController(
     private var contactButtonTool: Tool? = null
     private var stylusContactActive = false
     private var waitForStylusLift = false
+    var penPrimaryToggle = false
+    var penSecondaryToggle = false
+    private var buttonDisplayTool by mutableStateOf<Tool?>(null)
+    val displayTool: Tool get() = buttonDisplayTool ?: tool
+    private var contactPolicyRevision = 0
+
+    private fun configureButtons() {
+        stylusButtons.configure(penButtonTool, penSecondaryButtonTool,
+            spenThirdPartyButtons && penPrimaryToggle, spenThirdPartyButtons && penSecondaryToggle)
+    }
+
+    private fun updateButtonDisplay() {
+        buttonDisplayTool = if (spenThirdPartyButtons) stylusButtons.policy.tool() else null
+    }
+
+    fun cancelButtonOverride() {
+        stylusButtons.policy.cancel()
+        updateButtonDisplay()
+        if (spenThirdPartyButtons && stylusContactActive) {
+            if (mode == PointerMode.ERASE) endErase()
+            abortGesture()
+            waitForStylusLift = true
+        }
+    }
 
     /** When true, the side-button tool also runs off the hover stream (no contact needed); eraser/pan only. */
     var penButtonHover: Boolean = false
@@ -390,6 +418,7 @@ class InteractionController(
     }
 
     fun setTool(t: Tool) {
+        cancelButtonOverride()
         if (t == tool) {
             return
         }
@@ -433,7 +462,11 @@ class InteractionController(
     // --- touch entry point ---
 
     fun onTouch(e: MotionEvent): Boolean {
+        configureButtons()
+        stylusButtons.observe(e)
+        updateButtonDisplay()
         if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            contactPolicyRevision = stylusButtons.policy.revision
             waitForStylusLift = false
             stylusContactActive = StylusButtonLatch.isPen(e.getToolType(0))
         } else if (waitForStylusLift && e.actionMasked != MotionEvent.ACTION_CANCEL) {
@@ -464,6 +497,9 @@ class InteractionController(
     }
 
     fun onHover(e: MotionEvent): Boolean {
+        configureButtons()
+        stylusButtons.observe(e)
+        updateButtonDisplay()
         if (spenThirdPartyButtons && stylusContactActive) return false
         if (handleHoverAction(e)) return true
         val isEraserPointer = !spenThirdPartyButtons && e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
@@ -528,8 +564,10 @@ class InteractionController(
      *  (ACTION_BUTTON_PRESS/RELEASE), never in the touch buttonState. Latch it here; a release
      *  here also ends an in-progress hover gesture even if the pen has not moved. */
     fun onGenericMotion(e: MotionEvent) {
+        configureButtons()
         if (StylusButtonLatch.isPen(e.getToolType(0))) {
             stylusButtons.onGenericMotion(e)
+            updateButtonDisplay()
             if (hoverActionTool != null &&
                 stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true) != hoverActionTool) endHoverAction()
         }
@@ -540,7 +578,9 @@ class InteractionController(
      *  key-up also ends a live hover gesture. Returns true if the key was a stylus side button, so
      *  the host consumes it. */
     fun onStylusButtonKey(keyCode: Int, down: Boolean): Boolean {
+        configureButtons()
         if (!stylusButtons.onKey(keyCode, down)) return false
+        updateButtonDisplay()
         if (hoverActionTool != null &&
             stylusButtons.toolForButtons(0, penButtonTool, if (spenThirdPartyButtons) penSecondaryButtonTool else penButtonTool) != hoverActionTool) endHoverAction()
         return true
@@ -548,6 +588,7 @@ class InteractionController(
 
     fun releaseStylusButtons() {
         stylusButtons.reset()
+        updateButtonDisplay()
         contactButtonTool = null
         if (hoverActionTool != null) endHoverAction()
         if (spenThirdPartyButtons && stylusContactActive) {
@@ -738,7 +779,8 @@ class InteractionController(
         if (!spenThirdPartyButtons || !drawingIsStylus || e.pointerCount != 1 ||
             !StylusButtonLatch.isPen(e.getToolType(idx))) return false
         val next = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, true, idx)
-        if (next == contactButtonTool) return false
+        val toggled = contactPolicyRevision != stylusButtons.policy.revision
+        if (next == contactButtonTool && !toggled) return false
         val boundary = MotionEvent.obtainNoHistory(e)
         try {
             when (mode) {
@@ -757,11 +799,12 @@ class InteractionController(
             cancelLongPress()
             mode = PointerMode.IDLE
             contactButtonTool = next
+            contactPolicyRevision = stylusButtons.policy.revision
             // Releasing the final temporary tool is not a new pen-down. In particular,
             // do not clear a finished selection or start a stroke under the still-down nib.
             val vx = e.getX(idx).toDouble()
             val vy = e.getY(idx).toDouble()
-            when (next) {
+            when (if (toggled || stylusButtons.policy.heldTool() == null) null else next) {
                 Tool.PAN -> if (singleFingerPanAllowed()) beginPan(vx, vy, fromPenButton = true)
                 Tool.ERASER -> {
                     clearSelection()
@@ -2762,6 +2805,7 @@ class InteractionController(
         // The editor has already replaced the document and cleared its history.
         // Discard old gesture bookkeeping; focus-loss cleanup would commit old erases.
         stylusButtons.reset()
+        updateButtonDisplay()
         contactButtonTool = null
         stylusContactActive = false
         waitForStylusLift = spenThirdPartyButtons

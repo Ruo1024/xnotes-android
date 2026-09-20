@@ -1,5 +1,9 @@
 package com.xnotes.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 import android.os.Handler
 import android.os.Looper
 import android.view.Choreographer
@@ -130,6 +134,29 @@ class InfiniteInteraction(
     private var contactButtonTool: Tool? = null
     private var stylusContactActive = false
     private var waitForStylusLift = false
+    var penPrimaryToggle = false
+    var penSecondaryToggle = false
+    private var buttonDisplayTool by mutableStateOf<Tool?>(null)
+    val displayTool: Tool get() = buttonDisplayTool ?: tool
+    private var contactPolicyRevision = 0
+
+    private fun configureButtons() {
+        stylusButtons.configure(penButtonTool, penSecondaryButtonTool,
+            spenThirdPartyButtons && penPrimaryToggle, spenThirdPartyButtons && penSecondaryToggle)
+    }
+
+    private fun updateButtonDisplay() {
+        buttonDisplayTool = if (spenThirdPartyButtons) stylusButtons.policy.tool() else null
+    }
+
+    fun cancelButtonOverride() {
+        stylusButtons.policy.cancel()
+        updateButtonDisplay()
+        if (spenThirdPartyButtons && stylusContactActive) {
+            abortGesture()
+            waitForStylusLift = true
+        }
+    }
 
     /** Zoom lock: a pinch pans without changing the zoom, mirroring the paged canvas. */
     var zoomLocked: Boolean = false
@@ -210,7 +237,11 @@ class InfiniteInteraction(
     private var pinchAnchorContent = Pt.ZERO
 
     fun onTouch(e: MotionEvent): Boolean {
+        configureButtons()
+        stylusButtons.observe(e)
+        updateButtonDisplay()
         if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            contactPolicyRevision = stylusButtons.policy.revision
             waitForStylusLift = false
             stylusContactActive = StylusButtonLatch.isPen(e.getToolType(0))
         } else if (waitForStylusLift && e.actionMasked != MotionEvent.ACTION_CANCEL) {
@@ -241,14 +272,18 @@ class InfiniteInteraction(
      * place some pens put it.
      */
     fun onGenericMotion(e: MotionEvent) {
+        configureButtons()
         stylusButtons.onGenericMotion(e)
+        updateButtonDisplay()
         if (hoverActionTool != null && StylusButtonLatch.isPen(e.getToolType(0)) &&
             stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true) != hoverActionTool) endHoverAction()
     }
 
     /** Latch a side button delivered as a key event, which is all Bluetooth and USI pens send. */
     fun onStylusButtonKey(keyCode: Int, down: Boolean): Boolean {
+        configureButtons()
         if (!stylusButtons.onKey(keyCode, down)) return false
+        updateButtonDisplay()
         if (hoverActionTool != null &&
             stylusButtons.toolForButtons(0, penButtonTool, if (spenThirdPartyButtons) penSecondaryButtonTool else penButtonTool) != hoverActionTool) endHoverAction()
         return true
@@ -256,6 +291,7 @@ class InfiniteInteraction(
 
     fun releaseStylusButtons() {
         stylusButtons.reset()
+        updateButtonDisplay()
         contactButtonTool = null
         endHoverAction()
         if (spenThirdPartyButtons && stylusContactActive) {
@@ -266,6 +302,9 @@ class InfiniteInteraction(
     }
 
     fun onHover(e: MotionEvent): Boolean {
+        configureButtons()
+        stylusButtons.observe(e)
+        updateButtonDisplay()
         if (spenThirdPartyButtons && stylusContactActive) return false
         val buttonTool = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, spenThirdPartyButtons, hover = true)
         val wanted = if (penButtonHover && e.actionMasked != MotionEvent.ACTION_HOVER_EXIT &&
@@ -300,6 +339,7 @@ class InfiniteInteraction(
         // Unlike focus loss, the old document is gone: never push its erase command
         // through callbacks now owned by the newly installed document.
         stylusButtons.reset()
+        updateButtonDisplay()
         contactButtonTool = null
         stylusContactActive = false
         waitForStylusLift = spenThirdPartyButtons
@@ -492,7 +532,8 @@ class InfiniteInteraction(
         if (!spenThirdPartyButtons || !drawingIsStylus || e.pointerCount != 1 ||
             !StylusButtonLatch.isPen(e.getToolType(0)) || mode == CanvasPointerMode.PINCH) return false
         val next = stylusButtons.toolFor(e, penButtonTool, penSecondaryButtonTool, true)
-        if (next == contactButtonTool) return false
+        val toggled = contactPolicyRevision != stylusButtons.policy.revision
+        if (next == contactButtonTool && !toggled) return false
         val boundary = MotionEvent.obtainNoHistory(e)
         try {
             // A tool boundary is not a tap and must not dismiss a selection or start a fling.
@@ -501,10 +542,11 @@ class InfiniteInteraction(
             handleUp(boundary)
             stopFling()
             contactButtonTool = next
+            contactPolicyRevision = stylusButtons.policy.revision
             // Only a real subsequent DOWN may resume the armed drawing tool.
             val x = e.getX(0).toDouble()
             val y = e.getY(0).toDouble()
-            when (next) {
+            when (if (toggled || stylusButtons.policy.heldTool() == null) null else next) {
                 Tool.PAN -> beginPan(x, y, fromPenButton = true)
                 Tool.ERASER -> { clearSelection(); beginErase(x, y) }
                 Tool.SELECT -> beginSelect(x, y)

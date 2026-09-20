@@ -109,7 +109,8 @@ fun InfiniteToolbar(
                             if (icon != null) {
                                 Box {
                                     // Tapping the armed tool again opens its settings, as the paged bar does.
-                                    ToolbarIcon(icon, stringResource(tool.labelRes), active = editor.tool == tool) {
+                                    ToolbarIcon(icon, stringResource(tool.labelRes), active = editor.displayTool == tool) {
+                                        editor.cancelButtonOverride()
                                         when {
                                             tool == Tool.ERASER && editor.tool == tool -> eraserOpen = true
                                             tool == Tool.SHAPE && editor.tool == tool -> shapeOpen = true

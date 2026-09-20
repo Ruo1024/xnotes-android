@@ -44,6 +44,8 @@ data class Preferences(
     val penSecondaryButtonTool: String = penButtonTool,
     /** Opt in: some third-party EMR pens report their second side button as an eraser tip. */
     val spenThirdPartyButtons: Boolean = false,
+    val penPrimaryTrigger: String = "hold",
+    val penSecondaryTrigger: String = "hold",
     /** Whether the side-button tool also activates during hover (no contact needed); eraser/pan only. */
     val penButtonHover: Boolean = false,
     /** Action mapped to a clean two-finger tap; "none" (default) disables it. */
@@ -161,6 +163,8 @@ data class Preferences(
         .put("pen_button_tool", penButtonTool)
         .put("pen_button_secondary_tool", penSecondaryButtonTool)
         .put("spen_third_party_buttons", spenThirdPartyButtons)
+        .put("pen_primary_trigger", penPrimaryTrigger)
+        .put("pen_secondary_trigger", penSecondaryTrigger)
         .put("pen_button_hover", penButtonHover)
         .put("two_finger_tap", twoFingerTap)
         .put("three_finger_tap", threeFingerTap)
@@ -253,6 +257,8 @@ data class Preferences(
                     if (it in setOf("eraser", "pan", "select", "none")) it else "eraser"
                 },
                 spenThirdPartyButtons = o.optBoolean("spen_third_party_buttons", false),
+                penPrimaryTrigger = if (o.optString("pen_primary_trigger") == "toggle") "toggle" else "hold",
+                penSecondaryTrigger = if (o.optString("pen_secondary_trigger") == "toggle") "toggle" else "hold",
                 penButtonHover = o.optBoolean("pen_button_hover", false),
                 twoFingerTap = tapAction("two_finger_tap"),
                 threeFingerTap = tapAction("three_finger_tap"),

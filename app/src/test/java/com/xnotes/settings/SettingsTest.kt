@@ -13,6 +13,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsTest {
+    @Test fun independentTriggersRoundTripAndOldPreferencesRemainHold() {
+        val original = Preferences(penPrimaryTrigger = "hold", penSecondaryTrigger = "toggle")
+        val restored = Preferences.fromJson(original.toJson())
+        assertEquals("hold", restored.penPrimaryTrigger)
+        assertEquals("toggle", restored.penSecondaryTrigger)
+        val old = Preferences.fromJson(JSONObject())
+        assertEquals("hold", old.penPrimaryTrigger)
+        assertEquals("hold", old.penSecondaryTrigger)
+        assertEquals("hold", Preferences.fromJson(JSONObject().put("pen_primary_trigger", "invalid")).penPrimaryTrigger)
+    }
     @Test fun thirdPartyCompatibilityIsOptInEvenWithExistingSecondaryPreference() {
         assertFalse(Preferences.fromJson(JSONObject()).spenThirdPartyButtons)
         assertFalse(Preferences.fromJson(JSONObject()
